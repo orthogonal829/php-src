@@ -47,8 +47,7 @@ union semun {
 
 #endif
 
-/* {{{ sysvsem_module_entry
- */
+/* {{{ sysvsem_module_entry */
 zend_module_entry sysvsem_module_entry = {
 	STANDARD_MODULE_HEADER,
 	"sysvsem",
@@ -149,14 +148,13 @@ static void sysvsem_free_obj(zend_object *object)
 }
 /* }}} */
 
-/* {{{ PHP_MINIT_FUNCTION
- */
+/* {{{ PHP_MINIT_FUNCTION */
 PHP_MINIT_FUNCTION(sysvsem)
 {
 	zend_class_entry ce;
 	INIT_CLASS_ENTRY(ce, "SysvSemaphore", class_SysvSemaphore_methods);
 	sysvsem_ce = zend_register_internal_class(&ce);
-	sysvsem_ce->ce_flags |= ZEND_ACC_FINAL;
+	sysvsem_ce->ce_flags |= ZEND_ACC_FINAL | ZEND_ACC_NO_DYNAMIC_PROPERTIES;
 	sysvsem_ce->create_object = sysvsem_create_object;
 	sysvsem_ce->serialize = zend_class_serialize_deny;
 	sysvsem_ce->unserialize = zend_class_unserialize_deny;
@@ -171,8 +169,7 @@ PHP_MINIT_FUNCTION(sysvsem)
 }
 /* }}} */
 
-/* {{{ PHP_MINFO_FUNCTION
- */
+/* {{{ PHP_MINFO_FUNCTION */
 PHP_MINFO_FUNCTION(sysvsem)
 {
 	php_info_print_table_start();
@@ -187,17 +184,17 @@ PHP_MINFO_FUNCTION(sysvsem)
 #undef SETVAL_WANTS_PTR
 #endif
 
-/* {{{ proto SysvSemaphore sem_get(int key [, int max_acquire [, int perm [, int auto_release]])
-   Return an id for the semaphore with the given key, and allow max_acquire (default 1) processes to acquire it simultaneously */
+/* {{{ Return an id for the semaphore with the given key, and allow max_acquire (default 1) processes to acquire it simultaneously */
 PHP_FUNCTION(sem_get)
 {
-	zend_long key, max_acquire = 1, perm = 0666, auto_release = 1;
+	zend_long key, max_acquire = 1, perm = 0666;
+	zend_bool auto_release = 1;
 	int semid;
 	struct sembuf sop[3];
 	int count;
 	sysvsem_sem *sem_ptr;
 
-	if (FAILURE == zend_parse_parameters(ZEND_NUM_ARGS(), "l|lll", &key, &max_acquire, &perm, &auto_release)) {
+	if (FAILURE == zend_parse_parameters(ZEND_NUM_ARGS(), "l|llb", &key, &max_acquire, &perm, &auto_release)) {
 		RETURN_THROWS();
 	}
 
@@ -293,12 +290,11 @@ PHP_FUNCTION(sem_get)
 	sem_ptr->key   = key;
 	sem_ptr->semid = semid;
 	sem_ptr->count = 0;
-	sem_ptr->auto_release = auto_release;
+	sem_ptr->auto_release = (int) auto_release;
 }
 /* }}} */
 
-/* {{{ php_sysvsem_semop
- */
+/* {{{ php_sysvsem_semop */
 static void php_sysvsem_semop(INTERNAL_FUNCTION_PARAMETERS, int acquire)
 {
 	zval *arg_id;
@@ -341,24 +337,21 @@ static void php_sysvsem_semop(INTERNAL_FUNCTION_PARAMETERS, int acquire)
 }
 /* }}} */
 
-/* {{{ proto bool sem_acquire(SysvSemaphore id)
-   Acquires the semaphore with the given id, blocking if necessary */
+/* {{{ Acquires the semaphore with the given id, blocking if necessary */
 PHP_FUNCTION(sem_acquire)
 {
 	php_sysvsem_semop(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1);
 }
 /* }}} */
 
-/* {{{ proto bool sem_release(SysvSemaphore id)
-   Releases the semaphore with the given id */
+/* {{{ Releases the semaphore with the given id */
 PHP_FUNCTION(sem_release)
 {
 	php_sysvsem_semop(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0);
 }
 /* }}} */
 
-/* {{{ proto bool sem_remove(SysvSemaphore id)
-   Removes semaphore from Unix systems */
+/* {{{ Removes semaphore from Unix systems */
 
 /*
  * contributed by Gavin Sherry gavin@linuxworld.com.au

@@ -127,6 +127,10 @@ typedef struct _zend_ssa_var_info {
 	unsigned int           is_instanceof : 1; /* 0 - class == "ce", 1 - may be child of "ce" */
 	unsigned int           recursive : 1;
 	unsigned int           use_as_double : 1;
+	unsigned int           delayed_fetch_this : 1;
+	unsigned int           avoid_refcounting : 1;
+	unsigned int           guarded_reference : 1;
+	unsigned int           indirect_reference : 1; /* IS_INDIRECT returned by FETCH_DIM_W/FETCH_OBJ_W */
 } zend_ssa_var_info;
 
 typedef struct _zend_ssa {

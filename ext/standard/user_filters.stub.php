@@ -5,20 +5,16 @@
 class php_user_filter
 {
     /**
+     * @param resource $in
+     * @param resource $out
+     * @param int $consumed
      * @return int
-     * @alias user_filter_nop
      */
-    public function filter($in, $out, &$consumed, $closing) {}
+    public function filter($in, $out, &$consumed, bool $closing) {}
 
-    /**
-     * @return void
-     * @alias user_filter_nop
-     */
+    /** @return void */
     public function onCreate() {}
 
-    /**
-     * @return void
-     * @alias user_filter_nop
-     */
+    /** @return void */
     public function onClose() {}
 }

@@ -267,7 +267,7 @@ static zend_bool can_replace_op1(
 				(opline - 1)->opcode != ZEND_ASSIGN_STATIC_PROP_REF;
 		default:
 			if (ssa_op->op1_def != -1) {
-				ZEND_ASSERT(0);
+				ZEND_UNREACHABLE();
 				return 0;
 			}
 	}
@@ -300,10 +300,15 @@ static zend_bool try_replace_op1(
 			switch (opline->opcode) {
 				case ZEND_CASE:
 					opline->opcode = ZEND_IS_EQUAL;
-					/* break missing intentionally */
+					goto replace_op1_simple;
+				case ZEND_CASE_STRICT:
+					opline->opcode = ZEND_IS_IDENTICAL;
+					goto replace_op1_simple;
 				case ZEND_FETCH_LIST_R:
 				case ZEND_SWITCH_STRING:
 				case ZEND_SWITCH_LONG:
+				case ZEND_MATCH:
+replace_op1_simple:
 					if (Z_TYPE(zv) == IS_STRING) {
 						zend_string_hash_val(Z_STR(zv));
 					}
@@ -783,7 +788,7 @@ static inline int ct_eval_func_call(
 	uint32_t i;
 	zend_execute_data *execute_data, *prev_execute_data;
 	zend_function *func;
-	int overflow;
+	bool overflow;
 
 	if (num_args == 0) {
 		if (zend_string_equals_literal(name, "php_sapi_name")
@@ -1460,6 +1465,7 @@ static void sccp_visit_instr(scdf_ctx *scdf, zend_op *opline, zend_ssa_op *ssa_o
 		case ZEND_BW_XOR:
 		case ZEND_BOOL_XOR:
 		case ZEND_CASE:
+		case ZEND_CASE_STRICT:
 			SKIP_IF_TOP(op1);
 			SKIP_IF_TOP(op2);
 
@@ -1775,6 +1781,21 @@ static void sccp_visit_instr(scdf_ctx *scdf, zend_op *opline, zend_ssa_op *ssa_o
 		case ZEND_COPY_TMP:
 			SET_RESULT(result, op1);
 			break;
+		case ZEND_JMP_NULL:
+			switch (opline->extended_value) {
+				case ZEND_SHORT_CIRCUITING_CHAIN_EXPR:
+					ZVAL_NULL(&zv);
+					break;
+				case ZEND_SHORT_CIRCUITING_CHAIN_ISSET:
+					ZVAL_FALSE(&zv);
+					break;
+				case ZEND_SHORT_CIRCUITING_CHAIN_EMPTY:
+					ZVAL_TRUE(&zv);
+					break;
+				EMPTY_SWITCH_DEFAULT_CASE()
+			}
+			SET_RESULT(result, &zv);
+			break;
 #if 0
 		case ZEND_FETCH_CLASS:
 			if (!op1) {
@@ -1973,6 +1994,9 @@ static void sccp_mark_feasible_successors(
 		case ZEND_COALESCE:
 			s = (Z_TYPE_P(op1) == IS_NULL);
 			break;
+		case ZEND_JMP_NULL:
+			s = (Z_TYPE_P(op1) != IS_NULL);
+			break;
 		case ZEND_FE_RESET_R:
 		case ZEND_FE_RESET_RW:
 			/* A non-empty partial array is definitely non-empty, but an
@@ -1986,29 +2010,23 @@ static void sccp_mark_feasible_successors(
 			s = zend_hash_num_elements(Z_ARR_P(op1)) != 0;
 			break;
 		case ZEND_SWITCH_LONG:
-			if (Z_TYPE_P(op1) == IS_LONG) {
-				zend_op_array *op_array = scdf->op_array;
-				zend_ssa *ssa = scdf->ssa;
-				HashTable *jmptable = Z_ARRVAL_P(CT_CONSTANT_EX(op_array, opline->op2.constant));
-				zval *jmp_zv = zend_hash_index_find(jmptable, Z_LVAL_P(op1));
-				int target;
-
-				if (jmp_zv) {
-					target = ssa->cfg.map[ZEND_OFFSET_TO_OPLINE_NUM(op_array, opline, Z_LVAL_P(jmp_zv))];
-				} else {
-					target = ssa->cfg.map[ZEND_OFFSET_TO_OPLINE_NUM(op_array, opline, opline->extended_value)];
-				}
-				scdf_mark_edge_feasible(scdf, block_num, target);
-				return;
-			}
-			s = 0;
-			break;
 		case ZEND_SWITCH_STRING:
-			if (Z_TYPE_P(op1) == IS_STRING) {
+		case ZEND_MATCH:
+		{
+			zend_bool strict_comparison = opline->opcode == ZEND_MATCH;
+			zend_uchar type = Z_TYPE_P(op1);
+			zend_bool correct_type =
+				(opline->opcode == ZEND_SWITCH_LONG && type == IS_LONG)
+				|| (opline->opcode == ZEND_SWITCH_STRING && type == IS_STRING)
+				|| (opline->opcode == ZEND_MATCH && (type == IS_LONG || type == IS_STRING));
+
+			if (correct_type) {
 				zend_op_array *op_array = scdf->op_array;
 				zend_ssa *ssa = scdf->ssa;
 				HashTable *jmptable = Z_ARRVAL_P(CT_CONSTANT_EX(op_array, opline->op2.constant));
-				zval *jmp_zv = zend_hash_find(jmptable, Z_STR_P(op1));
+				zval *jmp_zv = type == IS_LONG
+					? zend_hash_index_find(jmptable, Z_LVAL_P(op1))
+					: zend_hash_find(jmptable, Z_STR_P(op1));
 				int target;
 
 				if (jmp_zv) {
@@ -2018,9 +2036,16 @@ static void sccp_mark_feasible_successors(
 				}
 				scdf_mark_edge_feasible(scdf, block_num, target);
 				return;
+			} else if (strict_comparison) {
+				zend_op_array *op_array = scdf->op_array;
+				zend_ssa *ssa = scdf->ssa;
+				int target = ssa->cfg.map[ZEND_OFFSET_TO_OPLINE_NUM(op_array, opline, opline->extended_value)];
+				scdf_mark_edge_feasible(scdf, block_num, target);
+				return;
 			}
 			s = 0;
 			break;
+		}
 		default:
 			for (s = 0; s < block->successors_count; s++) {
 				scdf_mark_edge_feasible(scdf, block_num, block->successors[s]);
@@ -2258,6 +2283,7 @@ static int try_remove_definition(sccp_ctx *ctx, int var_num, zend_ssa_var *var, 
 					|| opline->opcode == ZEND_JMPNZ_EX
 					|| opline->opcode == ZEND_JMP_SET
 					|| opline->opcode == ZEND_COALESCE
+					|| opline->opcode == ZEND_JMP_NULL
 					|| opline->opcode == ZEND_FE_RESET_R
 					|| opline->opcode == ZEND_FE_RESET_RW
 					|| opline->opcode == ZEND_FE_FETCH_R

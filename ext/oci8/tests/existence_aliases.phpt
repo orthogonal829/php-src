@@ -19,7 +19,6 @@ var_dump(function_exists('ocicancel'));
 var_dump(function_exists('ocifetch'));
 var_dump(function_exists('ocifetchstatement'));
 var_dump(function_exists('ocifreestatement'));
-var_dump(function_exists('ociinternaldebug'));
 var_dump(function_exists('ocinumcols'));
 var_dump(function_exists('ociparse'));
 var_dump(function_exists('ocinewcursor'));
@@ -51,8 +50,7 @@ var_dump(function_exists('ocicollsize'));
 var_dump(function_exists('ocicollmax'));
 var_dump(function_exists('ocicolltrim'));
 ?>
---EXPECTF--
-bool(true)
+--EXPECT--
 bool(true)
 bool(true)
 bool(true)

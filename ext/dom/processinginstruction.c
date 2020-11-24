@@ -30,7 +30,7 @@
 * Since:
 */
 
-/* {{{ proto DOMProcessingInstruction::__construct(string name, [string value]); */
+/* {{{ */
 PHP_METHOD(DOMProcessingInstruction, __construct)
 {
 	xmlNodePtr nodep = NULL, oldnode = NULL;
@@ -46,14 +46,14 @@ PHP_METHOD(DOMProcessingInstruction, __construct)
 	name_valid = xmlValidateName((xmlChar *) name, 0);
 	if (name_valid != 0) {
 		php_dom_throw_error(INVALID_CHARACTER_ERR, 1);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 
 	nodep = xmlNewPI((xmlChar *) name, (xmlChar *) value);
 
 	if (!nodep) {
 		php_dom_throw_error(INVALID_STATE_ERR, 1);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 
 	intern = Z_DOMOBJ_P(ZEND_THIS);

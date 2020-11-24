@@ -707,7 +707,7 @@ php_formatted_print(char *format, size_t format_len, zval *args, int argc, int n
 					/* break missing intentionally */
 
 				default:
-					zend_value_error("Unknown format specifier '%c'", *format);
+					zend_value_error("Unknown format specifier \"%c\"", *format);
 					goto fail;
 			}
 			format++;
@@ -719,7 +719,7 @@ php_formatted_print(char *format, size_t format_len, zval *args, int argc, int n
 		if (nb_additional_parameters == -1) {
 			zend_value_error("The arguments array must contain %d items, %d given", max_missing_argnum + 1, argc);
 		} else {
-			zend_argument_count_error("%d parameters are required, %d given", max_missing_argnum + nb_additional_parameters + 1, argc + nb_additional_parameters);
+			zend_argument_count_error("%d arguments are required, %d given", max_missing_argnum + nb_additional_parameters + 1, argc + nb_additional_parameters);
 		}
 		goto fail;
 	}
@@ -754,8 +754,7 @@ static zval *php_formatted_print_get_array(zend_array *array, int *argc)
 }
 /* }}} */
 
-/* {{{ proto string sprintf(string format [, mixed arg1 [, mixed ...]])
-   Return a formatted string */
+/* {{{ Return a formatted string */
 PHP_FUNCTION(sprintf)
 {
 	zend_string *result;
@@ -777,8 +776,7 @@ PHP_FUNCTION(sprintf)
 }
 /* }}} */
 
-/* {{{ proto string vsprintf(string format, array args)
-   Return a formatted string */
+/* {{{ Return a formatted string */
 PHP_FUNCTION(vsprintf)
 {
 	zend_string *result;
@@ -804,8 +802,7 @@ PHP_FUNCTION(vsprintf)
 }
 /* }}} */
 
-/* {{{ proto int printf(string format [, mixed arg1 [, mixed ...]])
-   Output a formatted string */
+/* {{{ Output a formatted string */
 PHP_FUNCTION(printf)
 {
 	zend_string *result;
@@ -830,8 +827,7 @@ PHP_FUNCTION(printf)
 }
 /* }}} */
 
-/* {{{ proto int vprintf(string format, array args)
-   Output a formatted string */
+/* {{{ Output a formatted string */
 PHP_FUNCTION(vprintf)
 {
 	zend_string *result;
@@ -860,8 +856,7 @@ PHP_FUNCTION(vprintf)
 }
 /* }}} */
 
-/* {{{ proto int fprintf(resource stream, string format [, mixed arg1 [, mixed ...]])
-   Output a formatted string into a stream */
+/* {{{ Output a formatted string into a stream */
 PHP_FUNCTION(fprintf)
 {
 	php_stream *stream;
@@ -870,10 +865,6 @@ PHP_FUNCTION(fprintf)
 	zval *arg1, *args;
 	int argc;
 	zend_string *result;
-
-	if (ZEND_NUM_ARGS() < 2) {
-		WRONG_PARAM_COUNT;
-	}
 
 	ZEND_PARSE_PARAMETERS_START(2, -1)
 		Z_PARAM_RESOURCE(arg1)
@@ -895,8 +886,7 @@ PHP_FUNCTION(fprintf)
 }
 /* }}} */
 
-/* {{{ proto int vfprintf(resource stream, string format, array args)
-   Output a formatted string into a stream */
+/* {{{ Output a formatted string into a stream */
 PHP_FUNCTION(vfprintf)
 {
 	php_stream *stream;
@@ -906,10 +896,6 @@ PHP_FUNCTION(vfprintf)
 	zend_array *array;
 	int argc;
 	zend_string *result;
-
-	if (ZEND_NUM_ARGS() != 3) {
-		WRONG_PARAM_COUNT;
-	}
 
 	ZEND_PARSE_PARAMETERS_START(3, 3)
 		Z_PARAM_RESOURCE(arg1)

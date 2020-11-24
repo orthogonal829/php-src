@@ -93,6 +93,11 @@ static int resourcebundle_ctor(INTERNAL_FUNCTION_PARAMETERS)
 		return FAILURE;
 	}
 
+	if (rb->me) {
+		zend_throw_error(NULL, "ResourceBundle object is already constructed");
+		return FAILURE;
+	}
+
 	INTL_CHECK_LOCALE_LEN_OR_FAILURE(locale_len);
 
 	if (locale == NULL) {
@@ -100,9 +105,7 @@ static int resourcebundle_ctor(INTERNAL_FUNCTION_PARAMETERS)
 	}
 
 	if (bundlename_len >= MAXPATHLEN) {
-		intl_error_set( NULL, U_ILLEGAL_ARGUMENT_ERROR,	"Bundle name too long", 0 );
-		zval_ptr_dtor(return_value);
-		ZVAL_NULL(return_value);
+		zend_argument_value_error(2, "is too long");
 		return FAILURE;
 	}
 
@@ -132,9 +135,7 @@ static int resourcebundle_ctor(INTERNAL_FUNCTION_PARAMETERS)
 }
 /* }}} */
 
-/* {{{ proto ResourceBundle::__construct( string $locale [, string $bundlename [, bool $fallback = true ]] )
- * ResourceBundle object constructor
- */
+/* {{{ ResourceBundle object constructor */
 PHP_METHOD( ResourceBundle, __construct )
 {
 	zend_error_handling error_handling;
@@ -150,9 +151,7 @@ PHP_METHOD( ResourceBundle, __construct )
 }
 /* }}} */
 
-/* {{{ proto ResourceBundle ResourceBundle::create( string $locale [, string $bundlename [, bool $fallback = true ]] )
-proto ResourceBundle resourcebundle_create( string $locale [, string $bundlename [, bool $fallback = true ]] )
-*/
+/* {{{ */
 PHP_FUNCTION( resourcebundle_create )
 {
 	object_init_ex( return_value, ResourceBundle_ce_ptr );
@@ -229,10 +228,7 @@ zval *resourcebundle_array_get(zend_object *object, zval *offset, int type, zval
 }
 /* }}} */
 
-/* {{{ proto mixed ResourceBundle::get( int|string $resindex [, bool $fallback = true ] )
- * proto mixed resourcebundle_get( ResourceBundle $rb, int|string $resindex [, bool $fallback = true ] )
- * Get resource identified by numerical index or key name.
- */
+/* {{{ Get resource identified by numerical index or key name. */
 PHP_FUNCTION( resourcebundle_get )
 {
 	zend_bool   fallback = 1;
@@ -264,10 +260,7 @@ int resourcebundle_array_count(zend_object *object, zend_long *count)
 }
 /* }}} */
 
-/* {{{ proto int ResourceBundle::count()
- * proto int resourcebundle_count( ResourceBundle $bundle )
- * Get resources count
- */
+/* {{{ Get resources count */
 PHP_FUNCTION( resourcebundle_count )
 {
 	int32_t                len;
@@ -283,10 +276,7 @@ PHP_FUNCTION( resourcebundle_count )
 	RETURN_LONG( len );
 }
 
-/* {{{ proto array ResourceBundle::getLocales( string $bundlename )
- * proto array resourcebundle_locales( string $bundlename )
- * Get available locales from ResourceBundle name
- */
+/* {{{ Get available locales from ResourceBundle name */
 PHP_FUNCTION( resourcebundle_locales )
 {
 	char * bundlename;
@@ -304,8 +294,8 @@ PHP_FUNCTION( resourcebundle_locales )
 	}
 
 	if (bundlename_len >= MAXPATHLEN) {
-		intl_error_set( NULL, U_ILLEGAL_ARGUMENT_ERROR,	"resourcebundle_locales: bundle name too long", 0 );
-		RETURN_FALSE;
+		zend_argument_value_error(1, "is too long");
+		RETURN_THROWS();
 	}
 
 	if(bundlename_len == 0) {
@@ -327,10 +317,7 @@ PHP_FUNCTION( resourcebundle_locales )
 }
 /* }}} */
 
-/* {{{ proto string ResourceBundle::getErrorCode( )
- * proto string resourcebundle_get_error_code( ResourceBundle $bundle )
- * Get text description for ResourceBundle's last error code.
- */
+/* {{{ Get text description for ResourceBundle's last error code. */
 PHP_FUNCTION( resourcebundle_get_error_code )
 {
 	RESOURCEBUNDLE_METHOD_INIT_VARS;
@@ -347,10 +334,7 @@ PHP_FUNCTION( resourcebundle_get_error_code )
 }
 /* }}} */
 
-/* {{{ proto string ResourceBundle::getErrorMessage( )
- * proto string resourcebundle_get_error_message( ResourceBundle $bundle )
- * Get text description for ResourceBundle's last error.
- */
+/* {{{ Get text description for ResourceBundle's last error. */
 PHP_FUNCTION( resourcebundle_get_error_message )
 {
 	zend_string* message = NULL;
@@ -367,6 +351,14 @@ PHP_FUNCTION( resourcebundle_get_error_message )
 	RETURN_STR(message);
 }
 /* }}} */
+
+PHP_METHOD(ResourceBundle, getIterator) {
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	zend_create_internal_iterator_zval(return_value, ZEND_THIS);
+}
 
 /* {{{ resourcebundle_register_class
  * Initialize 'ResourceBundle' class
@@ -389,6 +381,6 @@ void resourcebundle_register_class( void )
 	ResourceBundle_object_handlers.read_dimension = resourcebundle_array_get;
 	ResourceBundle_object_handlers.count_elements = resourcebundle_array_count;
 
-	zend_class_implements(ResourceBundle_ce_ptr, 2, zend_ce_traversable, zend_ce_countable);
+	zend_class_implements(ResourceBundle_ce_ptr, 2, zend_ce_aggregate, zend_ce_countable);
 }
 /* }}} */

@@ -133,6 +133,10 @@ PHPAPI zend_string *php_uudecode(const char *src, size_t src_len) /* {{{ */
 	const char *s, *e, *ee;
 	zend_string *dest;
 
+	if (src_len == 0) {
+		return NULL;
+	}
+
 	dest = zend_string_alloc((size_t) ceil(src_len * 0.75), 0);
 	p = ZSTR_VAL(dest);
 	s = src;
@@ -196,8 +200,7 @@ err:
 }
 /* }}} */
 
-/* {{{ proto string|false convert_uuencode(string data)
-   uuencode a string */
+/* {{{ uuencode a string */
 PHP_FUNCTION(convert_uuencode)
 {
 	zend_string *src;
@@ -205,14 +208,12 @@ PHP_FUNCTION(convert_uuencode)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_STR(src)
 	ZEND_PARSE_PARAMETERS_END();
-	if (ZSTR_LEN(src) < 1) { RETURN_FALSE; }
 
 	RETURN_STR(php_uuencode(ZSTR_VAL(src), ZSTR_LEN(src)));
 }
 /* }}} */
 
-/* {{{ proto string|false convert_uudecode(string data)
-   decode a uuencoded string */
+/* {{{ decode a uuencoded string */
 PHP_FUNCTION(convert_uudecode)
 {
 	zend_string *src;
@@ -221,10 +222,9 @@ PHP_FUNCTION(convert_uudecode)
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_STR(src)
 	ZEND_PARSE_PARAMETERS_END();
-	if (ZSTR_LEN(src) < 1) { RETURN_FALSE; }
 
 	if ((dest = php_uudecode(ZSTR_VAL(src), ZSTR_LEN(src))) == NULL) {
-		php_error_docref(NULL, E_WARNING, "The given parameter is not a valid uuencoded string");
+		php_error_docref(NULL, E_WARNING, "Argument #1 ($data) is not a valid uuencoded string");
 		RETURN_FALSE;
 	}
 

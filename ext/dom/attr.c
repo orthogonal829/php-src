@@ -32,7 +32,7 @@
 * Since:
 */
 
-/* {{{ proto DOMAttr::__construct(string name, [string value]) */
+/* {{{ */
 PHP_METHOD(DOMAttr, __construct)
 {
 	xmlAttrPtr nodep = NULL;
@@ -50,14 +50,14 @@ PHP_METHOD(DOMAttr, __construct)
 	name_valid = xmlValidateName((xmlChar *) name, 0);
 	if (name_valid != 0) {
 		php_dom_throw_error(INVALID_CHARACTER_ERR, 1);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 
 	nodep = xmlNewProp(NULL, (xmlChar *) name, (xmlChar *) value);
 
 	if (!nodep) {
 		php_dom_throw_error(INVALID_STATE_ERR, 1);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 
 	oldnode = dom_object_get_node(intern);
@@ -202,8 +202,7 @@ int dom_attr_schema_type_info_read(dom_object *obj, zval *retval)
 
 /* }}} */
 
-/* {{{ proto bool domattr::isId()
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Attr-isId
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Attr-isId
 Since: DOM Level 3
 */
 PHP_METHOD(DOMAttr, isId)

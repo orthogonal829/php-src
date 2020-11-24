@@ -317,7 +317,9 @@ zval *dom_read_property(zend_object *object, zend_string *name, int type, void *
 	if (obj->prop_handler != NULL) {
 		hnd = zend_hash_find_ptr(obj->prop_handler, name);
 	} else if (instanceof_function(obj->std.ce, dom_node_class_entry)) {
-		php_error(E_WARNING, "Couldn't fetch %s. Node no longer exists", ZSTR_VAL(obj->std.ce->name));
+		zend_throw_error(NULL, "Couldn't fetch %s. Node no longer exists", ZSTR_VAL(obj->std.ce->name));
+		retval = &EG(uninitialized_zval);
+		return retval;
 	}
 
 	if (hnd) {
@@ -448,8 +450,7 @@ void *php_dom_export_node(zval *object) /* {{{ */
 }
 /* }}} */
 
-/* {{{ proto somNode dom_import_simplexml(sxeobject node)
-   Get a simplexml_element object from dom to allow for processing */
+/* {{{ Get a simplexml_element object from dom to allow for processing */
 PHP_FUNCTION(dom_import_simplexml)
 {
 	zval *node;
@@ -467,8 +468,8 @@ PHP_FUNCTION(dom_import_simplexml)
 	if (nodep && nodeobj && (nodep->type == XML_ELEMENT_NODE || nodep->type == XML_ATTRIBUTE_NODE)) {
 		DOM_RET_OBJ((xmlNodePtr) nodep, &ret, (dom_object *)nodeobj);
 	} else {
-		php_error_docref(NULL, E_WARNING, "Invalid Nodetype to import");
-		RETURN_NULL();
+		zend_argument_value_error(1, "is not a valid node type");
+		RETURN_THROWS();
 	}
 }
 /* }}} */
@@ -670,7 +671,7 @@ PHP_MINIT_FUNCTION(dom)
 	ce.create_object = dom_nnodemap_objects_new;
 	dom_nodelist_class_entry = zend_register_internal_class_ex(&ce, NULL);
 	dom_nodelist_class_entry->get_iterator = php_dom_get_iterator;
-	zend_class_implements(dom_nodelist_class_entry, 2, zend_ce_traversable, zend_ce_countable);
+	zend_class_implements(dom_nodelist_class_entry, 2, zend_ce_aggregate, zend_ce_countable);
 
 	zend_hash_init(&dom_nodelist_prop_handlers, 0, NULL, dom_dtor_prop_handler, 1);
 	dom_register_prop_handler(&dom_nodelist_prop_handlers, "length", sizeof("length")-1, dom_nodelist_length_read, NULL);
@@ -680,7 +681,7 @@ PHP_MINIT_FUNCTION(dom)
 	ce.create_object = dom_nnodemap_objects_new;
 	dom_namednodemap_class_entry = zend_register_internal_class_ex(&ce, NULL);
 	dom_namednodemap_class_entry->get_iterator = php_dom_get_iterator;
-	zend_class_implements(dom_namednodemap_class_entry, 2, zend_ce_traversable, zend_ce_countable);
+	zend_class_implements(dom_namednodemap_class_entry, 2, zend_ce_aggregate, zend_ce_countable);
 
 	zend_hash_init(&dom_namednodemap_prop_handlers, 0, NULL, dom_dtor_prop_handler, 1);
 	dom_register_prop_handler(&dom_namednodemap_prop_handlers, "length", sizeof("length")-1, dom_namednodemap_length_read, NULL);
@@ -997,8 +998,7 @@ void dom_namednode_iter(dom_object *basenode, int ntype, dom_object *intern, xml
 
 	ZEND_ASSERT(basenode != NULL);
 
-	ZVAL_OBJ(&mapptr->baseobj_zv, &basenode->std);
-	Z_ADDREF(mapptr->baseobj_zv);
+	ZVAL_OBJ_COPY(&mapptr->baseobj_zv, &basenode->std);
 
 	mapptr->baseobj = basenode;
 	mapptr->nodetype = ntype;
@@ -1136,8 +1136,7 @@ PHP_DOM_EXPORT zend_bool php_dom_create_object(xmlNodePtr obj, zval *return_valu
 	}
 
 	if ((intern = (dom_object *) php_dom_object_get_data((void *) obj))) {
-		GC_ADDREF(&intern->std);
-		ZVAL_OBJ(return_value, &intern->std);
+		ZVAL_OBJ_COPY(return_value, &intern->std);
 		return 1;
 	}
 
@@ -1211,7 +1210,8 @@ PHP_DOM_EXPORT zend_bool php_dom_create_object(xmlNodePtr obj, zval *return_valu
 			break;
 		}
 		default:
-			php_error_docref(NULL, E_WARNING, "Unsupported node type: %d", obj->type);
+			/* TODO Convert to a ZEND assertion? */
+			zend_throw_error(NULL, "Unsupported node type: %d", obj->type);
 			ZVAL_NULL(return_value);
 			return 0;
 	}
@@ -1542,11 +1542,8 @@ static int dom_nodelist_has_dimension(zend_object *object, zval *member, int che
 	if (offset < 0) {
 		return 0;
 	} else {
-		zval obj;
-		zval *length;
-
-		ZVAL_OBJ(&obj, object);
-		length = zend_read_property(object->ce, &obj, "length", sizeof("length") - 1, 0, &rv);
+		zval *length = zend_read_property(
+			object->ce, object, "length", sizeof("length") - 1, 0, &rv);
 		return length && offset < Z_LVAL_P(length);
 	}
 } /* }}} end dom_nodelist_has_dimension */

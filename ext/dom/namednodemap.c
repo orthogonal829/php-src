@@ -22,6 +22,7 @@
 #include "php.h"
 #if defined(HAVE_LIBXML) && defined(HAVE_DOM)
 #include "php_dom.h"
+#include "zend_interfaces.h"
 
 /*
 * class DOMNamedNodeMap
@@ -71,8 +72,7 @@ int dom_namednodemap_length_read(dom_object *obj, zval *retval)
 
 /* }}} */
 
-/* {{{ proto DOMNode dom_namednodemap_get_named_item(string name);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-1074577549
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-1074577549
 Since:
 */
 PHP_METHOD(DOMNamedNodeMap, getNamedItem)
@@ -127,8 +127,7 @@ PHP_METHOD(DOMNamedNodeMap, getNamedItem)
 }
 /* }}} end dom_namednodemap_get_named_item */
 
-/* {{{ proto DOMNode dom_namednodemap_item(int index);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-349467F9
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-349467F9
 Since:
 */
 PHP_METHOD(DOMNamedNodeMap, item)
@@ -147,52 +146,49 @@ PHP_METHOD(DOMNamedNodeMap, item)
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l", &index) == FAILURE) {
 		RETURN_THROWS();
 	}
-	if (index >= 0) {
-		if (ZEND_LONG_INT_OVFL(index)) {
-			php_error_docref(NULL, E_WARNING, "Invalid index");
-			RETURN_NULL();
-		}
+	if (index < 0 || ZEND_LONG_INT_OVFL(index)) {
+		zend_argument_value_error(1, "must be between 0 and %d", INT_MAX);
+		RETURN_THROWS();
+	}
 
-		intern = Z_DOMOBJ_P(id);
+	intern = Z_DOMOBJ_P(id);
 
-		objmap = (dom_nnodemap_object *)intern->ptr;
+	objmap = (dom_nnodemap_object *)intern->ptr;
 
-		if (objmap != NULL) {
-			if ((objmap->nodetype == XML_NOTATION_NODE) ||
-				objmap->nodetype == XML_ENTITY_NODE) {
-				if (objmap->ht) {
-					if (objmap->nodetype == XML_ENTITY_NODE) {
-						itemnode = php_dom_libxml_hash_iter(objmap->ht, index);
-					} else {
-						itemnode = php_dom_libxml_notation_iter(objmap->ht, index);
-					}
-				}
-			} else {
-				nodep = dom_object_get_node(objmap->baseobj);
-				if (nodep) {
-					curnode = (xmlNodePtr)nodep->properties;
-					count = 0;
-					while (count < index && curnode != NULL) {
-						count++;
-						curnode = (xmlNodePtr)curnode->next;
-					}
-					itemnode = curnode;
+	if (objmap != NULL) {
+		if ((objmap->nodetype == XML_NOTATION_NODE) ||
+			objmap->nodetype == XML_ENTITY_NODE) {
+			if (objmap->ht) {
+				if (objmap->nodetype == XML_ENTITY_NODE) {
+					itemnode = php_dom_libxml_hash_iter(objmap->ht, index);
+				} else {
+					itemnode = php_dom_libxml_notation_iter(objmap->ht, index);
 				}
 			}
+		} else {
+			nodep = dom_object_get_node(objmap->baseobj);
+			if (nodep) {
+				curnode = (xmlNodePtr)nodep->properties;
+				count = 0;
+				while (count < index && curnode != NULL) {
+					count++;
+					curnode = (xmlNodePtr)curnode->next;
+				}
+				itemnode = curnode;
+			}
 		}
+	}
 
-		if (itemnode) {
-			DOM_RET_OBJ(itemnode, &ret, objmap->baseobj);
-			return;
-		}
+	if (itemnode) {
+		DOM_RET_OBJ(itemnode, &ret, objmap->baseobj);
+		return;
 	}
 
 	RETVAL_NULL();
 }
 /* }}} end dom_namednodemap_item */
 
-/* {{{ proto DOMNode dom_namednodemap_get_named_item_ns(string namespaceURI, string localName);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-getNamedItemNS
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#core-ID-getNamedItemNS
 Since: DOM Level 2
 */
 PHP_METHOD(DOMNamedNodeMap, getNamedItemNS)
@@ -247,8 +243,7 @@ PHP_METHOD(DOMNamedNodeMap, getNamedItemNS)
 }
 /* }}} end dom_namednodemap_get_named_item_ns */
 
-/* {{{ proto int|bool dom_namednodemap_count();
-*/
+/* {{{ */
 PHP_METHOD(DOMNamedNodeMap, count)
 {
 	zval *id;
@@ -265,5 +260,14 @@ PHP_METHOD(DOMNamedNodeMap, count)
 	}
 }
 /* }}} end dom_namednodemap_count */
+
+PHP_METHOD(DOMNamedNodeMap, getIterator)
+{
+	if (zend_parse_parameters_none() == FAILURE) {
+		return;
+	}
+
+	zend_create_internal_iterator_zval(return_value, ZEND_THIS);
+}
 
 #endif

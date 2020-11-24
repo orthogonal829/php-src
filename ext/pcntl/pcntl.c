@@ -428,6 +428,7 @@ PHP_RINIT_FUNCTION(pcntl)
 	zend_hash_init(&PCNTL_G(php_signal_table), 16, NULL, ZVAL_PTR_DTOR, 0);
 	PCNTL_G(head) = PCNTL_G(tail) = PCNTL_G(spares) = NULL;
 	PCNTL_G(async_signals) = 0;
+	PCNTL_G(last_error) = 0;
 	return SUCCESS;
 }
 
@@ -473,8 +474,7 @@ PHP_MINFO_FUNCTION(pcntl)
 	php_info_print_table_end();
 }
 
-/* {{{ proto int pcntl_fork(void)
-   Forks the currently running process following the same behavior as the UNIX fork() system call*/
+/* {{{ Forks the currently running process following the same behavior as the UNIX fork() system call*/
 PHP_FUNCTION(pcntl_fork)
 {
 	pid_t id;
@@ -493,8 +493,7 @@ PHP_FUNCTION(pcntl_fork)
 }
 /* }}} */
 
-/* {{{ proto int pcntl_alarm(int seconds)
-   Set an alarm clock for delivery of a signal*/
+/* {{{ Set an alarm clock for delivery of a signal*/
 PHP_FUNCTION(pcntl_alarm)
 {
 	zend_long seconds;
@@ -540,8 +539,7 @@ PHP_FUNCTION(pcntl_alarm)
 		PHP_RUSAGE_COMMON(from, to); \
 	}
 
-/* {{{ proto int pcntl_waitpid(int pid, int &status, int options, array &$rusage)
-   Waits on or returns the status of a forked child as defined by the waitpid() system call */
+/* {{{ Waits on or returns the status of a forked child as defined by the waitpid() system call */
 PHP_FUNCTION(pcntl_waitpid)
 {
 	zend_long pid, options = 0;
@@ -590,8 +588,7 @@ PHP_FUNCTION(pcntl_waitpid)
 }
 /* }}} */
 
-/* {{{ proto int pcntl_wait(int &status, int $options, array &$rusage)
-   Waits on or returns the status of a forked child as defined by the waitpid() system call */
+/* {{{ Waits on or returns the status of a forked child as defined by the waitpid() system call */
 PHP_FUNCTION(pcntl_wait)
 {
 	zend_long options = 0;
@@ -645,8 +642,7 @@ PHP_FUNCTION(pcntl_wait)
 #undef PHP_RUSAGE_COMMON
 #undef PHP_RUSAGE_TO_ARRAY
 
-/* {{{ proto bool pcntl_wifexited(int status)
-   Returns true if the child status code represents a successful exit */
+/* {{{ Returns true if the child status code represents a successful exit */
 PHP_FUNCTION(pcntl_wifexited)
 {
 	zend_long status_word;
@@ -666,8 +662,7 @@ PHP_FUNCTION(pcntl_wifexited)
 }
 /* }}} */
 
-/* {{{ proto bool pcntl_wifstopped(int status)
-   Returns true if the child status code represents a stopped process (WUNTRACED must have been used with waitpid) */
+/* {{{ Returns true if the child status code represents a stopped process (WUNTRACED must have been used with waitpid) */
 PHP_FUNCTION(pcntl_wifstopped)
 {
 	zend_long status_word;
@@ -687,8 +682,7 @@ PHP_FUNCTION(pcntl_wifstopped)
 }
 /* }}} */
 
-/* {{{ proto bool pcntl_wifsignaled(int status)
-   Returns true if the child status code represents a process that was terminated due to a signal */
+/* {{{ Returns true if the child status code represents a process that was terminated due to a signal */
 PHP_FUNCTION(pcntl_wifsignaled)
 {
 	zend_long status_word;
@@ -707,8 +701,7 @@ PHP_FUNCTION(pcntl_wifsignaled)
 	RETURN_FALSE;
 }
 /* }}} */
-/* {{{ proto bool pcntl_wifcontinued(int status)
-   Returns true if the child status code represents a process that was resumed due to a SIGCONT signal */
+/* {{{ Returns true if the child status code represents a process that was resumed due to a SIGCONT signal */
 PHP_FUNCTION(pcntl_wifcontinued)
 {
 	zend_long status_word;
@@ -728,8 +721,7 @@ PHP_FUNCTION(pcntl_wifcontinued)
 /* }}} */
 
 
-/* {{{ proto int pcntl_wexitstatus(int status)
-   Returns the status code of a child's exit */
+/* {{{ Returns the status code of a child's exit */
 PHP_FUNCTION(pcntl_wexitstatus)
 {
 	zend_long status_word;
@@ -747,8 +739,7 @@ PHP_FUNCTION(pcntl_wexitstatus)
 }
 /* }}} */
 
-/* {{{ proto int pcntl_wtermsig(int status)
-   Returns the number of the signal that terminated the process who's status code is passed  */
+/* {{{ Returns the number of the signal that terminated the process who's status code is passed  */
 PHP_FUNCTION(pcntl_wtermsig)
 {
 	zend_long status_word;
@@ -766,8 +757,7 @@ PHP_FUNCTION(pcntl_wtermsig)
 }
 /* }}} */
 
-/* {{{ proto int pcntl_wstopsig(int status)
-   Returns the number of the signal that caused the process to stop who's status code is passed */
+/* {{{ Returns the number of the signal that caused the process to stop who's status code is passed */
 PHP_FUNCTION(pcntl_wstopsig)
 {
 	zend_long status_word;
@@ -785,8 +775,7 @@ PHP_FUNCTION(pcntl_wstopsig)
 }
 /* }}} */
 
-/* {{{ proto bool pcntl_exec(string path [, array args [, array envs]])
-   Executes specified program in current process space as defined by exec(2) */
+/* {{{ Executes specified program in current process space as defined by exec(2) */
 PHP_FUNCTION(pcntl_exec)
 {
 	zval *args = NULL, *envs = NULL;
@@ -891,8 +880,7 @@ PHP_FUNCTION(pcntl_exec)
 }
 /* }}} */
 
-/* {{{ proto bool pcntl_signal(int signo, callback handle [, bool restart_syscalls])
-   Assigns a system signal handler to a PHP function */
+/* {{{ Assigns a system signal handler to a PHP function */
 PHP_FUNCTION(pcntl_signal)
 {
 	zval *handle;
@@ -905,9 +893,14 @@ PHP_FUNCTION(pcntl_signal)
 		RETURN_THROWS();
 	}
 
-	if (signo < 1 || signo >= NSIG) {
-		php_error_docref(NULL, E_WARNING, "Invalid signal");
-		RETURN_FALSE;
+	if (signo < 1) {
+		zend_argument_value_error(1, "must be greater than or equal to 1");
+		RETURN_THROWS();
+	}
+
+	if (signo >= NSIG) {
+		zend_argument_value_error(1, "must be less than %d", NSIG);
+		RETURN_THROWS();
 	}
 
 	if (!PCNTL_G(spares)) {
@@ -933,8 +926,8 @@ PHP_FUNCTION(pcntl_signal)
 	/* Special long value case for SIG_DFL and SIG_IGN */
 	if (Z_TYPE_P(handle) == IS_LONG) {
 		if (Z_LVAL_P(handle) != (zend_long) SIG_DFL && Z_LVAL_P(handle) != (zend_long) SIG_IGN) {
-			php_error_docref(NULL, E_WARNING, "Invalid value for handle argument specified");
-			RETURN_FALSE;
+			zend_argument_value_error(2, "must be either SIG_DFL or SIG_IGN when an integer value is given");
+			RETURN_THROWS();
 		}
 		if (php_signal(signo, (Sigfunc *) Z_LVAL_P(handle), (int) restart_syscalls) == (void *)SIG_ERR) {
 			PCNTL_G(last_error) = errno;
@@ -948,10 +941,11 @@ PHP_FUNCTION(pcntl_signal)
 	if (!zend_is_callable_ex(handle, NULL, 0, NULL, NULL, &error)) {
 		zend_string *func_name = zend_get_callable_name(handle);
 		PCNTL_G(last_error) = EINVAL;
-		php_error_docref(NULL, E_WARNING, "Specified handler \"%s\" is not callable (%s)", ZSTR_VAL(func_name), error);
+
+		zend_argument_type_error(2, "must be of type callable|int, %s given", zend_zval_type_name(handle));
 		zend_string_release_ex(func_name, 0);
 		efree(error);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 	ZEND_ASSERT(!error);
 
@@ -968,8 +962,7 @@ PHP_FUNCTION(pcntl_signal)
 }
 /* }}} */
 
-/* {{{ proto bool pcntl_signal_get_handler(int signo)
-   Gets signal handler */
+/* {{{ Gets signal handler */
 PHP_FUNCTION(pcntl_signal_get_handler)
 {
 	zval *prev_handle;
@@ -980,8 +973,8 @@ PHP_FUNCTION(pcntl_signal_get_handler)
 	}
 
 	if (signo < 1 || signo > 32) {
-		php_error_docref(NULL, E_WARNING, "Invalid signal");
-		RETURN_FALSE;
+		zend_argument_value_error(1, "must be between 1 and 32");
+		RETURN_THROWS();
 	}
 
 	if ((prev_handle = zend_hash_index_find(&PCNTL_G(php_signal_table), signo)) != NULL) {
@@ -991,8 +984,7 @@ PHP_FUNCTION(pcntl_signal_get_handler)
 	}
 }
 
-/* {{{ proto bool pcntl_signal_dispatch()
-   Dispatch signals to signal handlers */
+/* {{{ Dispatch signals to signal handlers */
 PHP_FUNCTION(pcntl_signal_dispatch)
 {
 	if (zend_parse_parameters_none() == FAILURE) {
@@ -1005,8 +997,7 @@ PHP_FUNCTION(pcntl_signal_dispatch)
 /* }}} */
 
 #ifdef HAVE_SIGPROCMASK
-/* {{{ proto bool pcntl_sigprocmask(int how, array set[, array &oldset])
-   Examine and change blocked signals */
+/* {{{ Examine and change blocked signals */
 PHP_FUNCTION(pcntl_sigprocmask)
 {
 	zend_long          how, signo;
@@ -1117,16 +1108,14 @@ static void pcntl_sigwaitinfo(INTERNAL_FUNCTION_PARAMETERS, int timedwait) /* {{
 }
 /* }}} */
 
-/* {{{ proto int pcntl_sigwaitinfo(array set[, array &siginfo])
-   Synchronously wait for queued signals */
+/* {{{ Synchronously wait for queued signals */
 PHP_FUNCTION(pcntl_sigwaitinfo)
 {
 	pcntl_sigwaitinfo(INTERNAL_FUNCTION_PARAM_PASSTHRU, 0);
 }
 /* }}} */
 
-/* {{{ proto int pcntl_sigtimedwait(array set[, array &siginfo[, int seconds[, int nanoseconds]]])
-   Wait for queued signals */
+/* {{{ Wait for queued signals */
 PHP_FUNCTION(pcntl_sigtimedwait)
 {
 	pcntl_sigwaitinfo(INTERNAL_FUNCTION_PARAM_PASSTHRU, 1);
@@ -1191,8 +1180,7 @@ static void pcntl_siginfo_to_zval(int signo, siginfo_t *siginfo, zval *user_sigi
 #endif
 
 #ifdef HAVE_GETPRIORITY
-/* {{{ proto int pcntl_getpriority([int pid [, int process_identifier]])
-   Get the priority of any process */
+/* {{{ Get the priority of any process */
 PHP_FUNCTION(pcntl_getpriority)
 {
 	zend_long who = PRIO_PROCESS;
@@ -1200,7 +1188,7 @@ PHP_FUNCTION(pcntl_getpriority)
 	zend_bool pid_is_null = 1;
 	int pri;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l!l", &pid, &who) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "|l!l", &pid, &pid_is_null, &who) == FAILURE) {
 		RETURN_THROWS();
 	}
 
@@ -1216,8 +1204,8 @@ PHP_FUNCTION(pcntl_getpriority)
 				php_error_docref(NULL, E_WARNING, "Error %d: No process was located using the given parameters", errno);
 				break;
 			case EINVAL:
-				php_error_docref(NULL, E_WARNING, "Error %d: Invalid identifier flag", errno);
-				break;
+				zend_argument_value_error(2, "must be one of PRIO_PGRP, PRIO_USER, or PRIO_PROCESS");
+				RETURN_THROWS();
 			default:
 				php_error_docref(NULL, E_WARNING, "Unknown error %d has occurred", errno);
 				break;
@@ -1231,8 +1219,7 @@ PHP_FUNCTION(pcntl_getpriority)
 #endif
 
 #ifdef HAVE_SETPRIORITY
-/* {{{ proto bool pcntl_setpriority(int priority [, int pid [, int process_identifier]])
-   Change the priority of any process */
+/* {{{ Change the priority of any process */
 PHP_FUNCTION(pcntl_setpriority)
 {
 	zend_long who = PRIO_PROCESS;
@@ -1240,7 +1227,7 @@ PHP_FUNCTION(pcntl_setpriority)
 	zend_bool pid_is_null = 1;
 	zend_long pri;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l!l", &pri, &pid, &who) == FAILURE) {
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "l|l!l", &pri, &pid, &pid_is_null, &who) == FAILURE) {
 		RETURN_THROWS();
 	}
 
@@ -1251,8 +1238,8 @@ PHP_FUNCTION(pcntl_setpriority)
 				php_error_docref(NULL, E_WARNING, "Error %d: No process was located using the given parameters", errno);
 				break;
 			case EINVAL:
-				php_error_docref(NULL, E_WARNING, "Error %d: Invalid identifier flag", errno);
-				break;
+				zend_argument_value_error(3, "must be one of PRIO_PGRP, PRIO_USER, or PRIO_PROCESS");
+				RETURN_THROWS();
 			case EPERM:
 				php_error_docref(NULL, E_WARNING, "Error %d: A process was located, but neither its effective nor real user ID matched the effective user ID of the caller", errno);
 				break;
@@ -1271,8 +1258,7 @@ PHP_FUNCTION(pcntl_setpriority)
 /* }}} */
 #endif
 
-/* {{{ proto int pcntl_get_last_error(void)
-   Retrieve the error number set by the last pcntl function which failed. */
+/* {{{ Retrieve the error number set by the last pcntl function which failed. */
 PHP_FUNCTION(pcntl_get_last_error)
 {
 	if (zend_parse_parameters_none() == FAILURE) {
@@ -1283,8 +1269,7 @@ PHP_FUNCTION(pcntl_get_last_error)
 }
 /* }}} */
 
-/* {{{ proto string pcntl_strerror(int errno)
-   Retrieve the system error message associated with the given errno. */
+/* {{{ Retrieve the system error message associated with the given errno. */
 PHP_FUNCTION(pcntl_strerror)
 {
 	zend_long error;
@@ -1399,8 +1384,7 @@ void pcntl_signal_dispatch()
 	sigprocmask(SIG_SETMASK, &old_mask, NULL);
 }
 
-/* {{{ proto bool pcntl_async_signals([bool on])
-   Enable/disable asynchronous signal handling and return the old setting. */
+/* {{{ Enable/disable asynchronous signal handling and return the old setting. */
 PHP_FUNCTION(pcntl_async_signals)
 {
 	zend_bool on, on_is_null = 1;
@@ -1419,24 +1403,22 @@ PHP_FUNCTION(pcntl_async_signals)
 /* }}} */
 
 #ifdef HAVE_UNSHARE
-/* {{{ proto bool pcntl_unshare(int flags)
-   disassociate parts of the process execution context */
+/* {{{ disassociate parts of the process execution context */
 PHP_FUNCTION(pcntl_unshare)
 {
 	zend_long flags;
-	int ret;
 
 	ZEND_PARSE_PARAMETERS_START(1, 1)
 		Z_PARAM_LONG(flags)
 	ZEND_PARSE_PARAMETERS_END();
 
-	ret = unshare(flags);
-	if (ret == -1) {
+	if (unshare(flags) == -1) {
 		PCNTL_G(last_error) = errno;
 		switch (errno) {
 #ifdef EINVAL
 			case EINVAL:
-				php_error_docref(NULL, E_WARNING, "Error %d: Invalid flag specified", errno);
+				zend_argument_value_error(1, "must be a combination of CLONE_* flags");
+				RETURN_THROWS();
 				break;
 #endif
 #ifdef ENOMEM

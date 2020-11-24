@@ -1,4 +1,5 @@
-/* This is a generated file, edit the .stub.php file instead. */
+/* This is a generated file, edit the .stub.php file instead.
+ * Stub hash: ded229511dc2bc3912d35b8055c0fd69420baff0 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_libxml_set_streams_context, 0, 1, IS_VOID, 0)
 	ZEND_ARG_INFO(0, context)
@@ -41,7 +42,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(libxml_get_last_error, arginfo_libxml_get_last_error)
 	ZEND_FE(libxml_get_errors, arginfo_libxml_get_errors)
 	ZEND_FE(libxml_clear_errors, arginfo_libxml_clear_errors)
-	ZEND_FE(libxml_disable_entity_loader, arginfo_libxml_disable_entity_loader)
+	ZEND_DEP_FE(libxml_disable_entity_loader, arginfo_libxml_disable_entity_loader)
 	ZEND_FE(libxml_set_external_entity_loader, arginfo_libxml_set_external_entity_loader)
 	ZEND_FE_END
 };

@@ -274,6 +274,14 @@ static void place_essa_pis(
 					}
 				}
 				continue;
+			case ZEND_JMP_NULL:
+				if (opline->op1_type == IS_CV) {
+					int var = EX_VAR_TO_NUM(opline->op1.var);
+					if ((pi = add_pi(arena, op_array, dfg, ssa, j, blocks[j].successors[1], var))) {
+						pi_not_type_mask(pi, MAY_BE_NULL);
+					}
+				}
+				continue;
 			default:
 				continue;
 		}
@@ -1189,7 +1197,7 @@ int zend_ssa_unlink_use_chain(zend_ssa *ssa, int op, int var) /* {{{ */
 			}
 		}
 		/* something wrong */
-		ZEND_ASSERT(0);
+		ZEND_UNREACHABLE();
 		return 0;
 	}
 }
@@ -1238,7 +1246,7 @@ static inline zend_ssa_phi **zend_ssa_next_use_phi_ptr(zend_ssa *ssa, int var, z
 			}
 		}
 	}
-	ZEND_ASSERT(0);
+	ZEND_UNREACHABLE();
 	return NULL;
 }
 /* }}} */
@@ -1311,11 +1319,7 @@ static inline void zend_ssa_remove_phi_source(zend_ssa *ssa, zend_ssa_phi *phi, 
 	for (j = 0; j < predecessors_count; j++) {
 		if (phi->sources[j] == var_num) {
 			if (j < pred_offset) {
-				if (next_phi == NULL) {
-					next_phi = phi->use_chains[pred_offset];
-				} else {
-					ZEND_ASSERT(phi->use_chains[pred_offset] == NULL);
-				}
+				ZEND_ASSERT(next_phi == NULL);
 			} else if (j >= pred_offset) {
 				phi->use_chains[j] = next_phi;
 			}
@@ -1401,7 +1405,7 @@ void zend_ssa_remove_predecessor(zend_ssa *ssa, int from, int to) /* {{{ */
 	for (phi = next_ssa_block->phis; phi; phi = phi->next) {
 		if (phi->pi >= 0) {
 			if (phi->pi == from) {
-				zend_ssa_remove_uses_of_var(ssa, phi->ssa_var);
+				zend_ssa_rename_var_uses(ssa, phi->ssa_var, phi->sources[0], /* update_types */ 0);
 				zend_ssa_remove_phi(ssa, phi);
 			}
 		} else {
@@ -1604,6 +1608,8 @@ void zend_ssa_rename_var_uses(zend_ssa *ssa, int old, int new, zend_bool update_
 						new_var->phi_use_chain = phi;
 					}
 					after_first_new_source = 1;
+				} else {
+					phi->use_chains[j] = NULL;
 				}
 			}
 		}

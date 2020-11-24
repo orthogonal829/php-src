@@ -33,6 +33,7 @@
 #include "php_pdo_pgsql.h"
 #include "php_pdo_pgsql_int.h"
 #include "zend_exceptions.h"
+#include "pgsql_driver_arginfo.h"
 
 static char * _pdo_pgsql_trim_message(const char *message, int persistent)
 {
@@ -93,8 +94,7 @@ int _pdo_pgsql_error(pdo_dbh_t *dbh, pdo_stmt_t *stmt, int errcode, const char *
 	}
 
 	if (!dbh->methods) {
-		zend_throw_exception_ex(php_pdo_get_exception(), einfo->errcode, "SQLSTATE[%s] [%d] %s",
-				*pdo_err, einfo->errcode, einfo->errmsg);
+		pdo_throw_exception(einfo->errcode, einfo->errmsg, pdo_err);
 	}
 
 	return errcode;
@@ -544,9 +544,8 @@ static int pgsql_handle_rollback(pdo_dbh_t *dbh)
 	return pdo_pgsql_transaction_cmd("ROLLBACK", dbh);
 }
 
-/* {{{ proto string PDO::pgsqlCopyFromArray(string $table_name , array $rows [, string $delimiter [, string $null_as ] [, string $fields])
-   Returns true if the copy worked fine or false if error */
-static PHP_METHOD(PDO, pgsqlCopyFromArray)
+/* {{{ Returns true if the copy worked fine or false if error */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlCopyFromArray)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -560,15 +559,15 @@ static PHP_METHOD(PDO, pgsqlCopyFromArray)
 	PGresult *pgsql_result;
 	ExecStatusType status;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sa|sss",
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sa|sss!",
 					&table_name, &table_name_len, &pg_rows,
 					&pg_delim, &pg_delim_len, &pg_null_as, &pg_null_as_len, &pg_fields, &pg_fields_len) == FAILURE) {
 		RETURN_THROWS();
 	}
 
 	if (!zend_hash_num_elements(Z_ARRVAL_P(pg_rows))) {
-		php_error_docref(NULL, E_WARNING, "Cannot copy from an empty array");
-		RETURN_FALSE;
+		zend_argument_value_error(2, "cannot be empty");
+		RETURN_THROWS();
 	}
 
 	dbh = Z_PDO_DBH_P(ZEND_THIS);
@@ -658,9 +657,8 @@ static PHP_METHOD(PDO, pgsqlCopyFromArray)
 }
 /* }}} */
 
-/* {{{ proto string PDO::pgsqlCopyFromFile(string $table_name , string $filename [, string $delimiter [, string $null_as ] [, string $fields])
-   Returns true if the copy worked fine or false if error */
-static PHP_METHOD(PDO, pgsqlCopyFromFile)
+/* {{{ Returns true if the copy worked fine or false if error */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlCopyFromFile)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -672,7 +670,7 @@ static PHP_METHOD(PDO, pgsqlCopyFromFile)
 	ExecStatusType status;
 	php_stream *stream;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sp|sss",
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sp|sss!",
 				&table_name, &table_name_len, &filename, &filename_len,
 				&pg_delim, &pg_delim_len, &pg_null_as, &pg_null_as_len, &pg_fields, &pg_fields_len) == FAILURE) {
 		RETURN_THROWS();
@@ -757,9 +755,8 @@ static PHP_METHOD(PDO, pgsqlCopyFromFile)
 /* }}} */
 
 
-/* {{{ proto string PDO::pgsqlCopyToFile(string $table_name , string $filename, [string $delimiter [, string $null_as [, string $fields]]])
-   Returns true if the copy worked fine or false if error */
-static PHP_METHOD(PDO, pgsqlCopyToFile)
+/* {{{ Returns true if the copy worked fine or false if error */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlCopyToFile)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -773,7 +770,7 @@ static PHP_METHOD(PDO, pgsqlCopyToFile)
 
 	php_stream *stream;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sp|sss",
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "sp|sss!",
 					&table_name, &table_name_len, &filename, &filename_len,
 					&pg_delim, &pg_delim_len, &pg_null_as, &pg_null_as_len, &pg_fields, &pg_fields_len) == FAILURE) {
 		RETURN_THROWS();
@@ -852,9 +849,8 @@ static PHP_METHOD(PDO, pgsqlCopyToFile)
 }
 /* }}} */
 
-/* {{{ proto string PDO::pgsqlCopyToArray(string $table_name , [string $delimiter [, string $null_as [, string $fields]]])
-   Returns true if the copy worked fine or false if error */
-static PHP_METHOD(PDO, pgsqlCopyToArray)
+/* {{{ Returns true if the copy worked fine or false if error */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlCopyToArray)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -866,7 +862,7 @@ static PHP_METHOD(PDO, pgsqlCopyToArray)
 	PGresult *pgsql_result;
 	ExecStatusType status;
 
-	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|sss",
+	if (zend_parse_parameters(ZEND_NUM_ARGS(), "s|sss!",
 		&table_name, &table_name_len,
 		&pg_delim, &pg_delim_len, &pg_null_as, &pg_null_as_len, &pg_fields, &pg_fields_len) == FAILURE) {
 		RETURN_THROWS();
@@ -929,9 +925,8 @@ static PHP_METHOD(PDO, pgsqlCopyToArray)
 /* }}} */
 
 
-/* {{{ proto string PDO::pgsqlLOBCreate()
-   Creates a new large object, returning its identifier.  Must be called inside a transaction. */
-static PHP_METHOD(PDO, pgsqlLOBCreate)
+/* {{{ Creates a new large object, returning its identifier.  Must be called inside a transaction. */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlLOBCreate)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -958,9 +953,8 @@ static PHP_METHOD(PDO, pgsqlLOBCreate)
 }
 /* }}} */
 
-/* {{{ proto resource PDO::pgsqlLOBOpen(string oid [, string mode = 'rb'])
-   Opens an existing large object stream.  Must be called inside a transaction. */
-static PHP_METHOD(PDO, pgsqlLOBOpen)
+/* {{{ Opens an existing large object stream.  Must be called inside a transaction. */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlLOBOpen)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -1010,9 +1004,8 @@ static PHP_METHOD(PDO, pgsqlLOBOpen)
 }
 /* }}} */
 
-/* {{{ proto bool PDO::pgsqlLOBUnlink(string oid)
-   Deletes the large object identified by oid.  Must be called inside a transaction. */
-static PHP_METHOD(PDO, pgsqlLOBUnlink)
+/* {{{ Deletes the large object identified by oid.  Must be called inside a transaction. */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlLOBUnlink)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -1046,9 +1039,8 @@ static PHP_METHOD(PDO, pgsqlLOBUnlink)
 }
 /* }}} */
 
-/* {{{ proto mixed PDO::pgsqlGetNotify([ int $result_type = PDO::FETCH_USE_DEFAULT] [, int $ms_timeout = 0 ]])
-   Get asynchronous notification */
-static PHP_METHOD(PDO, pgsqlGetNotify)
+/* {{{ Get asynchronous notification */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlGetNotify)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -1069,13 +1061,13 @@ static PHP_METHOD(PDO, pgsqlGetNotify)
 	}
 
 	if (result_type != PDO_FETCH_BOTH && result_type != PDO_FETCH_ASSOC && result_type != PDO_FETCH_NUM) {
-		php_error_docref(NULL, E_WARNING, "Invalid result type");
- 		RETURN_FALSE;
+		zend_argument_value_error(1, "must be one of PDO::FETCH_BOTH, PDO::FETCH_ASSOC, or PDO::FETCH_NUM");
+		RETURN_THROWS();
 	}
 
 	if (ms_timeout < 0) {
-		php_error_docref(NULL, E_WARNING, "Invalid timeout");
- 		RETURN_FALSE;
+		zend_argument_value_error(2, "must be greater than or equal to 0");
+		RETURN_THROWS();
 #ifdef ZEND_ENABLE_ZVAL_LONG64
 	} else if (ms_timeout > INT_MAX) {
 		php_error_docref(NULL, E_WARNING, "Timeout was shrunk to %d", INT_MAX);
@@ -1127,9 +1119,8 @@ static PHP_METHOD(PDO, pgsqlGetNotify)
 }
 /* }}} */
 
-/* {{{ proto int PDO::pgsqlGetPid()
-   Get backend(server) pid */
-static PHP_METHOD(PDO, pgsqlGetPid)
+/* {{{ Get backend(server) pid */
+PHP_METHOD(PDO_PGSql_Ext, pgsqlGetPid)
 {
 	pdo_dbh_t *dbh;
 	pdo_pgsql_db_handle *H;
@@ -1145,25 +1136,11 @@ static PHP_METHOD(PDO, pgsqlGetPid)
 }
 /* }}} */
 
-
-static const zend_function_entry dbh_methods[] = {
-	PHP_ME(PDO, pgsqlLOBCreate, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlLOBOpen, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlLOBUnlink, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlCopyFromArray, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlCopyFromFile, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlCopyToArray, NULL, ZEND_ACC_PUBLIC)
-	PHP_ME(PDO, pgsqlCopyToFile, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(PDO, pgsqlGetNotify, NULL, ZEND_ACC_PUBLIC)
-    PHP_ME(PDO, pgsqlGetPid, NULL, ZEND_ACC_PUBLIC)
-	PHP_FE_END
-};
-
 static const zend_function_entry *pdo_pgsql_get_driver_methods(pdo_dbh_t *dbh, int kind)
 {
 	switch (kind) {
 		case PDO_DBH_DRIVER_METHOD_KIND_DBH:
-			return dbh_methods;
+			return class_PDO_PGSql_Ext_methods;
 		default:
 			return NULL;
 	}
@@ -1202,6 +1179,7 @@ static const struct pdo_dbh_methods pgsql_methods = {
 	pdo_pgsql_get_driver_methods,  /* get_driver_methods */
 	NULL,
 	pgsql_handle_in_transaction,
+	NULL /* get_gc */
 };
 
 static int pdo_pgsql_handle_factory(pdo_dbh_t *dbh, zval *driver_options) /* {{{ */
@@ -1214,6 +1192,11 @@ static int pdo_pgsql_handle_factory(pdo_dbh_t *dbh, zval *driver_options) /* {{{
 
 	H = pecalloc(1, sizeof(pdo_pgsql_db_handle), dbh->is_persistent);
 	dbh->driver_data = H;
+
+	dbh->skip_param_evt =
+		1 << PDO_PARAM_EVT_EXEC_POST |
+		1 << PDO_PARAM_EVT_FETCH_PRE |
+		1 << PDO_PARAM_EVT_FETCH_POST;
 
 	H->einfo.errcode = 0;
 	H->einfo.errmsg = NULL;

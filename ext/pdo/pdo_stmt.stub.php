@@ -2,62 +2,49 @@
 
 /** @generate-function-entries */
 
-class PDOStatement implements Traversable
+class PDOStatement implements IteratorAggregate
 {
-    /**
-     * @param mixed $driverdata
-     * @return bool
-     */
-    public function bindColumn(int|string $column, &$param, int $type = 0, int $maxlen = 0, $driverdata = null) {}
+    /** @return bool */
+    public function bindColumn(string|int $column, mixed &$var, int $type = 0, int $maxLength = 0, mixed $driverOptions = null) {}
 
-    /**
-     * @param mixed $driver_options
-     * @return bool
-     */
-    public function bindParam(int|string $parameter, &$param, int $type = PDO::PARAM_STR, int $maxlen = 0, $driverdata = null) {}
+    /** @return bool */
+    public function bindParam(string|int $param, mixed &$var, int $type = PDO::PARAM_STR, int $maxLength = 0, mixed $driverOptions = null) {}
 
-    /**
-     * @param int|string $parameter
-     * @param mixed $value
-     * @return bool
-     */
-    public function bindValue($parameter, $value, int $type = PDO::PARAM_STR) {}
+    /** @return bool */
+    public function bindValue(string|int $param, mixed $value, int $type = PDO::PARAM_STR) {}
 
     /** @return bool */
     public function closeCursor() {}
 
-    /** @return int|false */
+    /** @return int */
     public function columnCount() {}
 
-    /** @return false|null */
+    /** @return bool|null */
     public function debugDumpParams() {}
 
-    /** @return string|false|null */
+    /** @return string|null */
     public function errorCode() {}
 
-    /** @return array|false */
+    /** @return array */
     public function errorInfo() {}
 
     /** @return bool */
-    public function execute(?array $input_parameters = null) {}
+    public function execute(?array $params = null) {}
 
     /** @return mixed */
-    public function fetch(int $fetch_style = PDO::FETCH_BOTH, int $cursor_orientation = PDO::FETCH_ORI_NEXT, int $cursor_offset = 0) {}
+    public function fetch(int $mode = PDO::FETCH_BOTH, int $cursorOrientation = PDO::FETCH_ORI_NEXT, int $cursorOffset = 0) {}
 
-    /**
-     * @param mixed $fetch_argument
-     * @return array|false
-     */
-    public function fetchAll(int $fetch_style = PDO::FETCH_BOTH, $fetch_argument = UNKNOWN, array $ctor_args = []) {}
+    /** @return array */
+    public function fetchAll(int $mode = PDO::FETCH_BOTH, mixed ...$args) {}
 
     /** @return mixed */
-    public function fetchColumn(int $column_number = 0) {}
+    public function fetchColumn(int $column = 0) {}
+
+    /** @return object|false */
+    public function fetchObject(?string $class = "stdClass", ?array $ctorArgs = null) {}
 
     /** @return mixed */
-    public function fetchObject(?string $class_name = "stdClass", ?array $ctor_args = null) {}
-
-    /** @return mixed */
-    public function getAttribute(int $attribute) {}
+    public function getAttribute(int $name) {}
 
     /** @return array|false */
     public function getColumnMeta(int $column) {}
@@ -65,17 +52,16 @@ class PDOStatement implements Traversable
     /** @return bool */
     public function nextRowset() {}
 
-    /** @return int|false */
+    /** @return int */
     public function rowCount() {}
 
-    /**
-     * @param mixed $value
-     * @return bool
-     */
-    public function setAttribute(int $attribute, $value) {}
+    /** @return bool */
+    public function setAttribute(int $attribute, mixed $value) {}
 
     /** @return bool */
-    public function setFetchMode(int $mode, $param1 = UNKNOWN, $param2 = UNKNOWN) {}
+    public function setFetchMode(int $mode, mixed ...$args) {}
+
+    public function getIterator(): Iterator {}
 }
 
 final class PDORow

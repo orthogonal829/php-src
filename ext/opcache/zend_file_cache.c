@@ -22,6 +22,7 @@
 #include "zend_vm.h"
 #include "zend_interfaces.h"
 #include "zend_attributes.h"
+#include "zend_system_id.h"
 
 #include "php.h"
 #ifdef ZEND_WIN32
@@ -280,7 +281,7 @@ static void *zend_file_cache_unserialize_interned(zend_string *str, int in_shm)
 			memcpy(ret, str, size);
 			/* String wasn't interned but we will use it as interned anyway */
 			GC_SET_REFCOUNT(ret, 1);
-			GC_TYPE_INFO(ret) = IS_STRING | ((IS_STR_INTERNED | IS_STR_PERSISTENT | IS_STR_PERMANENT) << GC_FLAGS_SHIFT);
+			GC_TYPE_INFO(ret) = GC_STRING | ((IS_STR_INTERNED | IS_STR_PERSISTENT | IS_STR_PERMANENT) << GC_FLAGS_SHIFT);
 		}
 	} else {
 		ret = str;
@@ -415,7 +416,8 @@ static void zend_file_cache_serialize_attribute(zval                     *zv,
 	SERIALIZE_STR(attr->lcname);
 
 	for (i = 0; i < attr->argc; i++) {
-		zend_file_cache_serialize_zval(&attr->argv[i], script, info, buf);
+		SERIALIZE_STR(attr->args[i].name);
+		zend_file_cache_serialize_zval(&attr->args[i].value, script, info, buf);
 	}
 }
 
@@ -448,7 +450,13 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
                                                zend_file_cache_metainfo *info,
                                                void                     *buf)
 {
-	if (op_array->static_variables && !IS_SERIALIZED(op_array->static_variables)) {
+	/* Check whether this op_array has already been serialized. */
+	if (IS_SERIALIZED(op_array->opcodes)) {
+		ZEND_ASSERT(op_array->scope && "Only method op_arrays should be shared");
+		return;
+	}
+
+	if (op_array->static_variables) {
 		HashTable *ht;
 
 		SERIALIZE_PTR(op_array->static_variables);
@@ -457,7 +465,14 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 		zend_file_cache_serialize_hash(ht, script, info, buf, zend_file_cache_serialize_zval);
 	}
 
-	if (op_array->scope && !IS_SERIALIZED(op_array->opcodes)) {
+	ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
+	if (op_array->fn_flags & ZEND_ACC_IMMUTABLE) {
+		ZEND_MAP_PTR_INIT(op_array->run_time_cache, NULL);
+	} else {
+		SERIALIZE_PTR(ZEND_MAP_PTR(op_array->run_time_cache));
+	}
+
+	if (op_array->scope) {
 		if (UNEXPECTED(zend_shared_alloc_get_xlat_entry(op_array->opcodes))) {
 			op_array->refcount = (uint32_t*)(intptr_t)-1;
 			SERIALIZE_PTR(op_array->literals);
@@ -477,7 +492,7 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 		zend_shared_alloc_register_xlat_entry(op_array->opcodes, op_array->opcodes);
 	}
 
-	if (op_array->literals && !IS_SERIALIZED(op_array->literals)) {
+	if (op_array->literals) {
 		zval *p, *end;
 
 		SERIALIZE_PTR(op_array->literals);
@@ -490,7 +505,7 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 		}
 	}
 
-	if (!IS_SERIALIZED(op_array->opcodes)) {
+	{
 		zend_op *opline, *end;
 
 #if !ZEND_USE_ABS_CONST_ADDR
@@ -536,6 +551,7 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 				case ZEND_FE_RESET_R:
 				case ZEND_FE_RESET_RW:
 				case ZEND_ASSERT_CHECK:
+				case ZEND_JMP_NULL:
 					SERIALIZE_PTR(opline->op2.jmp_addr);
 					break;
 				case ZEND_CATCH:
@@ -547,6 +563,7 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 				case ZEND_FE_FETCH_RW:
 				case ZEND_SWITCH_LONG:
 				case ZEND_SWITCH_STRING:
+				case ZEND_MATCH:
 					/* relative extended_value don't have to be changed */
 					break;
 			}
@@ -599,13 +616,6 @@ static void zend_file_cache_serialize_op_array(zend_op_array            *op_arra
 		SERIALIZE_ATTRIBUTES(op_array->attributes);
 		SERIALIZE_PTR(op_array->try_catch_array);
 		SERIALIZE_PTR(op_array->prototype);
-
-		ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
-		if (op_array->fn_flags & ZEND_ACC_IMMUTABLE) {
-			ZEND_MAP_PTR_INIT(op_array->run_time_cache, NULL);
-		} else {
-			SERIALIZE_PTR(ZEND_MAP_PTR(op_array->run_time_cache));
-		}
 	}
 }
 
@@ -827,8 +837,8 @@ static void zend_file_cache_serialize_class(zval                     *zv,
 	SERIALIZE_PTR(ce->__get);
 	SERIALIZE_PTR(ce->__set);
 	SERIALIZE_PTR(ce->__call);
-	SERIALIZE_PTR(ce->serialize_func);
-	SERIALIZE_PTR(ce->unserialize_func);
+	SERIALIZE_PTR(ce->__serialize);
+	SERIALIZE_PTR(ce->__unserialize);
 	SERIALIZE_PTR(ce->__isset);
 	SERIALIZE_PTR(ce->__unset);
 	SERIALIZE_PTR(ce->__tostring);
@@ -875,7 +885,7 @@ static void zend_file_cache_serialize(zend_persistent_script   *script,
 	zend_persistent_script *new_script;
 
 	memcpy(info->magic, "OPCACHE", 8);
-	memcpy(info->system_id, accel_system_id, 32);
+	memcpy(info->system_id, zend_system_id, 32);
 	info->mem_size = script->size;
 	info->str_size = 0;
 	info->script_offset = (char*)script - (char*)script->mem;
@@ -905,7 +915,7 @@ static char *zend_file_cache_get_bin_file_path(zend_string *script_path)
 	filename = emalloc(len + 33 + ZSTR_LEN(script_path) + sizeof(SUFFIX));
 	memcpy(filename, ZCG(accel_directives).file_cache, len);
 	filename[len] = '/';
-	memcpy(filename + len + 1, accel_system_id, 32);
+	memcpy(filename + len + 1, zend_system_id, 32);
 	memcpy(filename + len + 33, ZSTR_VAL(script_path), ZSTR_LEN(script_path));
 	memcpy(filename + len + 33 + ZSTR_LEN(script_path), SUFFIX, sizeof(SUFFIX));
 #else
@@ -919,7 +929,7 @@ static char *zend_file_cache_get_bin_file_path(zend_string *script_path)
 	len += 1 + 32;
 	filename[len] = '\\';
 
-	memcpy(filename + len + 1, accel_system_id, 32);
+	memcpy(filename + len + 1, zend_system_id, 32);
 
 	if (ZSTR_LEN(script_path) >= 7 && ':' == ZSTR_VAL(script_path)[4] && '/' == ZSTR_VAL(script_path)[5]  && '/' == ZSTR_VAL(script_path)[6]) {
 		/* phar:// or file:// */
@@ -1022,7 +1032,7 @@ int zend_file_cache_script_store(zend_persistent_script *script, int in_shm)
 #endif
 
 #ifdef HAVE_SYS_UIO_H
-	vec[0].iov_base = &info;
+	vec[0].iov_base = (void *)&info;
 	vec[0].iov_len = sizeof(info);
 	vec[1].iov_base = buf;
 	vec[1].iov_len = script->size;
@@ -1178,7 +1188,8 @@ static void zend_file_cache_unserialize_attribute(zval *zv, zend_persistent_scri
 	UNSERIALIZE_STR(attr->lcname);
 
 	for (i = 0; i < attr->argc; i++) {
-		zend_file_cache_unserialize_zval(&attr->argv[i], script, buf);
+		UNSERIALIZE_STR(attr->args[i].name);
+		zend_file_cache_unserialize_zval(&attr->args[i].value, script, buf);
 	}
 }
 
@@ -1209,13 +1220,39 @@ static void zend_file_cache_unserialize_op_array(zend_op_array           *op_arr
                                                  zend_persistent_script  *script,
                                                  void                    *buf)
 {
-	if (op_array->static_variables && !IS_UNSERIALIZED(op_array->static_variables)) {
+	/* Check whether this op_array has already been unserialized. */
+	if (IS_UNSERIALIZED(op_array->opcodes)) {
+		ZEND_ASSERT(op_array->scope && "Only method op_arrays should be shared");
+		return;
+	}
+
+	if (op_array->static_variables) {
 		HashTable *ht;
 
 		UNSERIALIZE_PTR(op_array->static_variables);
 		ht = op_array->static_variables;
 		zend_file_cache_unserialize_hash(ht,
 				script, buf, zend_file_cache_unserialize_zval, ZVAL_PTR_DTOR);
+	}
+
+	if (op_array->fn_flags & ZEND_ACC_IMMUTABLE) {
+		if (op_array->static_variables) {
+			ZEND_MAP_PTR_NEW(op_array->static_variables_ptr);
+		} else {
+			ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
+		}
+		ZEND_MAP_PTR_NEW(op_array->run_time_cache);
+	} else {
+		ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
+		if (ZEND_MAP_PTR(op_array->run_time_cache)) {
+			if (script->corrupted) {
+				/* Not in SHM: Use serialized arena pointer. */
+				UNSERIALIZE_PTR(ZEND_MAP_PTR(op_array->run_time_cache));
+			} else {
+				/* In SHM: Allocate new pointer. */
+				ZEND_MAP_PTR_NEW(op_array->run_time_cache);
+			}
+		}
 	}
 
 	if (op_array->refcount) {
@@ -1235,7 +1272,7 @@ static void zend_file_cache_unserialize_op_array(zend_op_array           *op_arr
 		return;
 	}
 
-	if (op_array->literals && !IS_UNSERIALIZED(op_array->literals)) {
+	if (op_array->literals) {
 		zval *p, *end;
 
 		UNSERIALIZE_PTR(op_array->literals);
@@ -1247,7 +1284,7 @@ static void zend_file_cache_unserialize_op_array(zend_op_array           *op_arr
 		}
 	}
 
-	if (!IS_UNSERIALIZED(op_array->opcodes)) {
+	{
 		zend_op *opline, *end;
 
 		UNSERIALIZE_PTR(op_array->opcodes);
@@ -1287,6 +1324,7 @@ static void zend_file_cache_unserialize_op_array(zend_op_array           *op_arr
 				case ZEND_FE_RESET_R:
 				case ZEND_FE_RESET_RW:
 				case ZEND_ASSERT_CHECK:
+				case ZEND_JMP_NULL:
 					UNSERIALIZE_PTR(opline->op2.jmp_addr);
 					break;
 				case ZEND_CATCH:
@@ -1348,26 +1386,6 @@ static void zend_file_cache_unserialize_op_array(zend_op_array           *op_arr
 		UNSERIALIZE_ATTRIBUTES(op_array->attributes);
 		UNSERIALIZE_PTR(op_array->try_catch_array);
 		UNSERIALIZE_PTR(op_array->prototype);
-
-		if (op_array->fn_flags & ZEND_ACC_IMMUTABLE) {
-			if (op_array->static_variables) {
-				ZEND_MAP_PTR_NEW(op_array->static_variables_ptr);
-			} else {
-				ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
-			}
-			ZEND_MAP_PTR_NEW(op_array->run_time_cache);
-		} else {
-			ZEND_MAP_PTR_INIT(op_array->static_variables_ptr, &op_array->static_variables);
-			if (ZEND_MAP_PTR(op_array->run_time_cache)) {
-				if (script->corrupted) {
-					/* Not in SHM: Use serialized arena pointer. */
-					UNSERIALIZE_PTR(ZEND_MAP_PTR(op_array->run_time_cache));
-				} else {
-					/* In SHM: Allocate new pointer. */
-					ZEND_MAP_PTR_NEW(op_array->run_time_cache);
-				}
-			}
-		}
 	}
 }
 
@@ -1564,8 +1582,8 @@ static void zend_file_cache_unserialize_class(zval                    *zv,
 	UNSERIALIZE_PTR(ce->__get);
 	UNSERIALIZE_PTR(ce->__set);
 	UNSERIALIZE_PTR(ce->__call);
-	UNSERIALIZE_PTR(ce->serialize_func);
-	UNSERIALIZE_PTR(ce->unserialize_func);
+	UNSERIALIZE_PTR(ce->__serialize);
+	UNSERIALIZE_PTR(ce->__unserialize);
 	UNSERIALIZE_PTR(ce->__isset);
 	UNSERIALIZE_PTR(ce->__unset);
 	UNSERIALIZE_PTR(ce->__tostring);
@@ -1671,7 +1689,7 @@ zend_persistent_script *zend_file_cache_script_load(zend_file_handle *file_handl
 		efree(filename);
 		return NULL;
 	}
-	if (memcmp(info.system_id, accel_system_id, 32) != 0) {
+	if (memcmp(info.system_id, zend_system_id, 32) != 0) {
 		zend_accel_error(ACCEL_LOG_WARNING, "opcache cannot read from file '%s' (wrong \"system_id\")\n", filename);
 		zend_file_cache_flock(fd, LOCK_UN);
 		close(fd);

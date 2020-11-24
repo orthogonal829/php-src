@@ -27,27 +27,17 @@
 zend_class_entry *xsl_xsltprocessor_class_entry;
 static zend_object_handlers xsl_object_handlers;
 
-/* {{{ xsl_functions[]
- *
- * Every user visible function must have an entry in xsl_functions[].
- */
-const zend_function_entry xsl_functions[] = {
-	PHP_FE_END
-};
-/* }}} */
-
 static const zend_module_dep xsl_deps[] = {
 	ZEND_MOD_REQUIRED("libxml")
 	ZEND_MOD_END
 };
 
-/* {{{ xsl_module_entry
- */
+/* {{{ xsl_module_entry */
 zend_module_entry xsl_module_entry = {
 	STANDARD_MODULE_HEADER_EX, NULL,
 	xsl_deps,
 	"xsl",
-	xsl_functions,
+	NULL,
 	PHP_MINIT(xsl),
 	PHP_MSHUTDOWN(xsl),
 	NULL,
@@ -118,11 +108,9 @@ zend_object *xsl_objects_new(zend_class_entry *class_type)
 }
 /* }}} */
 
-/* {{{ PHP_MINIT_FUNCTION
- */
+/* {{{ PHP_MINIT_FUNCTION */
 PHP_MINIT_FUNCTION(xsl)
 {
-
 	zend_class_entry ce;
 
 	memcpy(&xsl_object_handlers, &std_object_handlers, sizeof(zend_object_handlers));
@@ -130,7 +118,10 @@ PHP_MINIT_FUNCTION(xsl)
 	xsl_object_handlers.clone_obj = NULL;
 	xsl_object_handlers.free_obj = xsl_objects_free_storage;
 
-	REGISTER_XSL_CLASS(ce, "XSLTProcessor", NULL, class_XSLTProcessor_methods, xsl_xsltprocessor_class_entry);
+	INIT_CLASS_ENTRY(ce, "XSLTProcessor", class_XSLTProcessor_methods);
+	ce.create_object = xsl_objects_new;
+	xsl_xsltprocessor_class_entry = zend_register_internal_class(&ce);
+
 #ifdef HAVE_XSL_EXSLT
 	exsltRegisterAll();
 #endif
@@ -229,8 +220,7 @@ void php_xsl_create_object(xsltStylesheetPtr obj, zval *wrapper_in, zval *return
 }
 /* }}} */
 
-/* {{{ PHP_MSHUTDOWN_FUNCTION
- */
+/* {{{ PHP_MSHUTDOWN_FUNCTION */
 PHP_MSHUTDOWN_FUNCTION(xsl)
 {
 	xsltUnregisterExtModuleFunction ((const xmlChar *) "functionString",
@@ -244,8 +234,7 @@ PHP_MSHUTDOWN_FUNCTION(xsl)
 }
 /* }}} */
 
-/* {{{ PHP_MINFO_FUNCTION
- */
+/* {{{ PHP_MINFO_FUNCTION */
 PHP_MINFO_FUNCTION(xsl)
 {
 	php_info_print_table_start();

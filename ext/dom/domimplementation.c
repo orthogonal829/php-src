@@ -30,8 +30,7 @@
 * Since:
 */
 
-/* {{{ proto bool dom_domimplementation_has_feature(string feature, string version);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#ID-5CED94D7
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#ID-5CED94D7
 Since:
 */
 PHP_METHOD(DOMImplementation, hasFeature)
@@ -51,8 +50,7 @@ PHP_METHOD(DOMImplementation, hasFeature)
 }
 /* }}} end dom_domimplementation_has_feature */
 
-/* {{{ proto DOMDocumentType dom_domimplementation_create_document_type(string qualifiedName, string publicId, string systemId);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Level-2-Core-DOM-createDocType
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Level-2-Core-DOM-createDocType
 Since: DOM Level 2
 */
 PHP_METHOD(DOMImplementation, createDocumentType)
@@ -69,8 +67,8 @@ PHP_METHOD(DOMImplementation, createDocumentType)
 	}
 
 	if (name_len == 0) {
-		php_error_docref(NULL, E_WARNING, "qualifiedName is required");
-		RETURN_FALSE;
+		zend_argument_value_error(1, "cannot be empty");
+		RETURN_THROWS();
 	}
 
 	if (publicid_len > 0) {
@@ -113,8 +111,7 @@ PHP_METHOD(DOMImplementation, createDocumentType)
 }
 /* }}} end dom_domimplementation_create_document_type */
 
-/* {{{ proto DOMDocument dom_domimplementation_create_document(string namespaceURI, string qualifiedName, DOMDocumentType doctype);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Level-2-Core-DOM-createDocument
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#Level-2-Core-DOM-createDocument
 Since: DOM Level 2
 */
 PHP_METHOD(DOMImplementation, createDocument)
@@ -137,12 +134,12 @@ PHP_METHOD(DOMImplementation, createDocument)
 	if (node != NULL) {
 		DOM_GET_OBJ(doctype, node, xmlDtdPtr, doctobj);
 		if (doctype->type == XML_DOCUMENT_TYPE_NODE) {
-			php_error_docref(NULL, E_WARNING, "Invalid DocumentType object");
-			RETURN_FALSE;
+			zend_argument_value_error(3, "is an invalid DocumentType object");
+			RETURN_THROWS();
 		}
 		if (doctype->doc != NULL) {
 			php_dom_throw_error(WRONG_DOCUMENT_ERR, 1);
-			RETURN_FALSE;
+			RETURN_THROWS();
 		}
 	} else {
 		doctobj = NULL;
@@ -166,7 +163,7 @@ PHP_METHOD(DOMImplementation, createDocument)
 			xmlFree(localname);
 		}
 		php_dom_throw_error(errorcode, 1);
-		RETURN_FALSE;
+		RETURN_THROWS();
 	}
 
 	/* currently letting libxml2 set the version string */
@@ -198,9 +195,9 @@ PHP_METHOD(DOMImplementation, createDocument)
 			}
 			xmlFreeDoc(docp);
 			xmlFree(localname);
-			/* Need some type of error here */
-			php_error_docref(NULL, E_WARNING, "Unexpected Error");
-			RETURN_FALSE;
+			/* Need some better type of error here */
+			php_dom_throw_error(PHP_ERR, 1);
+			RETURN_THROWS();
 		}
 
 		nodep->nsDef = nsptr;
@@ -218,8 +215,7 @@ PHP_METHOD(DOMImplementation, createDocument)
 }
 /* }}} end dom_domimplementation_create_document */
 
-/* {{{ proto DOMNode dom_domimplementation_get_feature(string feature, string version);
-URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#DOMImplementation3-getFeature
+/* {{{ URL: http://www.w3.org/TR/2003/WD-DOM-Level-3-Core-20030226/DOM3-Core.html#DOMImplementation3-getFeature
 Since: DOM Level 3
 */
 PHP_METHOD(DOMImplementation, getFeature)

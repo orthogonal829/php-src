@@ -6,12 +6,6 @@ Felix De Vliegher <felix.devliegher@gmail.com>
 precision=14
 --FILE--
 <?php
-/* Prototype  : int vfprintf(resource stream, string format, array args)
- * Description: Output a formatted string into a stream
- * Source code: ext/standard/formatted_print.c
- * Alias to functions:
- */
-
 // Open handle
 $file = 'vfprintf_error3.txt';
 $fp = fopen( $file, "a+" );
@@ -54,6 +48,6 @@ unlink( $file );
 --EXPECT--
 -- Testing vfprintf() function with wrong variable types as argument --
 vfprintf(): Argument #2 ($format) must be of type string, array given
-vfprintf(): Argument #3 ($args) must be of type array, string given
-Unknown format specifier 'y'
+vfprintf(): Argument #3 ($values) must be of type array, string given
+Unknown format specifier "y"
 string(0) ""

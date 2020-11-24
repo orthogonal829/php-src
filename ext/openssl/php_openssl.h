@@ -35,9 +35,7 @@ extern zend_module_entry openssl_module_entry;
 #endif
 #else
 /* OpenSSL version check */
-#if OPENSSL_VERSION_NUMBER < 0x10002000L
-#define PHP_OPENSSL_API_VERSION 0x10001
-#elif OPENSSL_VERSION_NUMBER < 0x10100000L
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
 #define PHP_OPENSSL_API_VERSION 0x10002
 #else
 #define PHP_OPENSSL_API_VERSION 0x10100
@@ -110,6 +108,21 @@ PHP_OPENSSL_API zend_string* php_openssl_decrypt(
 	const char *iv, size_t iv_len,
 	const char *tag, zend_long tag_len,
 	const char *aad, size_t aad_len);
+
+/* OpenSSLCertificate class */
+
+typedef struct _php_openssl_certificate_object {
+	X509 *x509;
+	zend_object std;
+} php_openssl_certificate_object;
+
+extern zend_class_entry *php_openssl_certificate_ce;
+
+static inline php_openssl_certificate_object *php_openssl_certificate_from_obj(zend_object *obj) {
+	return (php_openssl_certificate_object *)((char *)(obj) - XtOffsetOf(php_openssl_certificate_object, std));
+}
+
+#define Z_OPENSSL_CERTIFICATE_P(zv) php_openssl_certificate_from_obj(Z_OBJ_P(zv))
 
 PHP_MINIT_FUNCTION(openssl);
 PHP_MSHUTDOWN_FUNCTION(openssl);

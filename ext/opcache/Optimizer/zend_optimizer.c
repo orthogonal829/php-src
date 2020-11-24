@@ -293,6 +293,7 @@ int zend_optimizer_update_op1_const(zend_op_array *op_array,
 			 * zend_optimizer_replace_by_const() supports this. */
 			return 0;
 		case ZEND_CASE:
+		case ZEND_CASE_STRICT:
 		case ZEND_FETCH_LIST_R:
 		case ZEND_COPY_TMP:
 		case ZEND_FETCH_CLASS_NAME:
@@ -376,6 +377,7 @@ int zend_optimizer_update_op2_const(zend_op_array *op_array,
 		case ZEND_FETCH_STATIC_PROP_UNSET:
 		case ZEND_FETCH_STATIC_PROP_FUNC_ARG:
 		case ZEND_UNSET_STATIC_PROP:
+		case ZEND_ISSET_ISEMPTY_STATIC_PROP:
 		case ZEND_PRE_INC_STATIC_PROP:
 		case ZEND_PRE_DEC_STATIC_PROP:
 		case ZEND_POST_INC_STATIC_PROP:
@@ -558,7 +560,7 @@ int zend_optimizer_replace_by_const(zend_op_array *op_array,
 					break;
 				/* In most cases IS_TMP_VAR operand may be used only once.
 				 * The operands are usually destroyed by the opcode handler.
-				 * ZEND_CASE and ZEND_FETCH_LIST_R are exceptions, they keeps operand
+				 * ZEND_CASE[_STRICT] and ZEND_FETCH_LIST_R are exceptions, they keeps operand
 				 * unchanged, and allows its reuse. these instructions
 				 * usually terminated by ZEND_FREE that finally kills the value.
 				 */
@@ -587,17 +589,25 @@ int zend_optimizer_replace_by_const(zend_op_array *op_array,
 				}
 				case ZEND_SWITCH_LONG:
 				case ZEND_SWITCH_STRING:
-				case ZEND_CASE: {
+				case ZEND_MATCH:
+				case ZEND_CASE:
+				case ZEND_CASE_STRICT: {
 					zend_op *end = op_array->opcodes + op_array->last;
 					while (opline < end) {
 						if (opline->op1_type == type && opline->op1.var == var) {
-							if (opline->opcode == ZEND_CASE
-									|| opline->opcode == ZEND_SWITCH_LONG
-									|| opline->opcode == ZEND_SWITCH_STRING) {
+							if (
+								opline->opcode == ZEND_CASE
+								|| opline->opcode == ZEND_CASE_STRICT
+								|| opline->opcode == ZEND_SWITCH_LONG
+								|| opline->opcode == ZEND_SWITCH_STRING
+								|| opline->opcode == ZEND_MATCH
+							) {
 								zval v;
 
 								if (opline->opcode == ZEND_CASE) {
 									opline->opcode = ZEND_IS_EQUAL;
+								} else if (opline->opcode == ZEND_CASE_STRICT) {
+									opline->opcode = ZEND_IS_IDENTICAL;
 								}
 								ZVAL_COPY(&v, val);
 								if (Z_TYPE(v) == IS_STRING) {
@@ -615,7 +625,7 @@ int zend_optimizer_replace_by_const(zend_op_array *op_array,
 								ZEND_ASSERT(opline->extended_value == ZEND_FREE_ON_RETURN);
 								MAKE_NOP(opline);
 							} else {
-								ZEND_ASSERT(0);
+								ZEND_UNREACHABLE();
 							}
 						}
 						opline++;
@@ -674,6 +684,7 @@ void zend_optimizer_migrate_jump(zend_op_array *op_array, zend_op *new_opline, z
 		case ZEND_JMP_SET:
 		case ZEND_COALESCE:
 		case ZEND_ASSERT_CHECK:
+		case ZEND_JMP_NULL:
 			ZEND_SET_OP_JMP_ADDR(new_opline, new_opline->op2, ZEND_OP2_JMP_ADDR(opline));
 			break;
 		case ZEND_FE_FETCH_R:
@@ -687,6 +698,7 @@ void zend_optimizer_migrate_jump(zend_op_array *op_array, zend_op *new_opline, z
 			break;
 		case ZEND_SWITCH_LONG:
 		case ZEND_SWITCH_STRING:
+		case ZEND_MATCH:
 		{
 			HashTable *jumptable = Z_ARRVAL(ZEND_OP2_LITERAL(opline));
 			zval *zv;
@@ -718,6 +730,7 @@ void zend_optimizer_shift_jump(zend_op_array *op_array, zend_op *opline, uint32_
 		case ZEND_JMP_SET:
 		case ZEND_COALESCE:
 		case ZEND_ASSERT_CHECK:
+		case ZEND_JMP_NULL:
 			ZEND_SET_OP_JMP_ADDR(opline, opline->op2, ZEND_OP2_JMP_ADDR(opline) - shiftlist[ZEND_OP2_JMP_ADDR(opline) - op_array->opcodes]);
 			break;
 		case ZEND_CATCH:
@@ -731,6 +744,7 @@ void zend_optimizer_shift_jump(zend_op_array *op_array, zend_op *opline, uint32_
 			break;
 		case ZEND_SWITCH_LONG:
 		case ZEND_SWITCH_STRING:
+		case ZEND_MATCH:
 		{
 			HashTable *jumptable = Z_ARRVAL(ZEND_OP2_LITERAL(opline));
 			zval *zv;
@@ -830,7 +844,9 @@ zend_function *zend_optimizer_get_called_func(
 		case ZEND_INIT_METHOD_CALL:
 			if (opline->op1_type == IS_UNUSED
 					&& opline->op2_type == IS_CONST && Z_TYPE_P(CRT_CONSTANT(opline->op2)) == IS_STRING
-					&& op_array->scope && !(op_array->scope->ce_flags & ZEND_ACC_TRAIT)) {
+					&& op_array->scope
+					&& !(op_array->fn_flags & ZEND_ACC_TRAIT_CLONE)
+					&& !(op_array->scope->ce_flags & ZEND_ACC_TRAIT)) {
 				zend_string *method_name = Z_STR_P(CRT_CONSTANT(opline->op2) + 1);
 				zend_function *fbc = zend_hash_find_ptr(
 					&op_array->scope->function_table, method_name);
@@ -869,6 +885,8 @@ uint32_t zend_optimizer_classify_function(zend_string *name, uint32_t num_args) 
 	} else if (zend_string_equals_literal(name, "compact")) {
 		return ZEND_FUNC_INDIRECT_VAR_ACCESS;
 	} else if (zend_string_equals_literal(name, "get_defined_vars")) {
+		return ZEND_FUNC_INDIRECT_VAR_ACCESS;
+	} else if (zend_string_equals_literal(name, "db2_execute")) {
 		return ZEND_FUNC_INDIRECT_VAR_ACCESS;
 	} else if (zend_string_equals_literal(name, "func_num_args")) {
 		return ZEND_FUNC_VARARG;
@@ -1094,6 +1112,7 @@ static void zend_redo_pass_two(zend_op_array *op_array)
 			case ZEND_FE_RESET_R:
 			case ZEND_FE_RESET_RW:
 			case ZEND_ASSERT_CHECK:
+			case ZEND_JMP_NULL:
 				opline->op2.jmp_addr = &op_array->opcodes[opline->op2.jmp_addr - old_opcodes];
 				break;
 			case ZEND_CATCH:
@@ -1105,6 +1124,7 @@ static void zend_redo_pass_two(zend_op_array *op_array)
 			case ZEND_FE_FETCH_RW:
 			case ZEND_SWITCH_LONG:
 			case ZEND_SWITCH_STRING:
+			case ZEND_MATCH:
 				/* relative extended_value don't have to be changed */
 				break;
 #endif
@@ -1115,6 +1135,7 @@ static void zend_redo_pass_two(zend_op_array *op_array)
 			case ZEND_IS_SMALLER:
 			case ZEND_IS_SMALLER_OR_EQUAL:
 			case ZEND_CASE:
+			case ZEND_CASE_STRICT:
 			case ZEND_ISSET_ISEMPTY_CV:
 			case ZEND_ISSET_ISEMPTY_VAR:
 			case ZEND_ISSET_ISEMPTY_DIM_OBJ:
@@ -1214,6 +1235,7 @@ static void zend_redo_pass_two_ex(zend_op_array *op_array, zend_ssa *ssa)
 			case ZEND_FE_RESET_R:
 			case ZEND_FE_RESET_RW:
 			case ZEND_ASSERT_CHECK:
+			case ZEND_JMP_NULL:
 				opline->op2.jmp_addr = &op_array->opcodes[opline->op2.jmp_addr - old_opcodes];
 				break;
 			case ZEND_CATCH:
@@ -1225,6 +1247,7 @@ static void zend_redo_pass_two_ex(zend_op_array *op_array, zend_ssa *ssa)
 			case ZEND_FE_FETCH_RW:
 			case ZEND_SWITCH_LONG:
 			case ZEND_SWITCH_STRING:
+			case ZEND_MATCH:
 				/* relative extended_value don't have to be changed */
 				break;
 #endif
@@ -1235,6 +1258,7 @@ static void zend_redo_pass_two_ex(zend_op_array *op_array, zend_ssa *ssa)
 			case ZEND_IS_SMALLER:
 			case ZEND_IS_SMALLER_OR_EQUAL:
 			case ZEND_CASE:
+			case ZEND_CASE_STRICT:
 			case ZEND_ISSET_ISEMPTY_CV:
 			case ZEND_ISSET_ISEMPTY_VAR:
 			case ZEND_ISSET_ISEMPTY_DIM_OBJ:
@@ -1326,11 +1350,21 @@ static void zend_adjust_fcall_stack_size_graph(zend_op_array *op_array)
 static zend_bool needs_live_range(zend_op_array *op_array, zend_op *def_opline) {
 	zend_func_info *func_info = ZEND_FUNC_INFO(op_array);
 	zend_ssa_op *ssa_op = &func_info->ssa.ops[def_opline - op_array->opcodes];
-	if (ssa_op->result_def >= 0) {
-		uint32_t type = func_info->ssa.var_info[ssa_op->result_def].type;
-		return (type & (MAY_BE_STRING|MAY_BE_ARRAY|MAY_BE_OBJECT|MAY_BE_RESOURCE|MAY_BE_REF)) != 0;
+	int ssa_var = ssa_op->result_def;
+	if (ssa_var < 0) {
+		/* Be conservative. */
+		return 1;
 	}
-	return 1;
+
+	/* If the variable is used by a PHI, this may be the assignment of the final branch of a
+	 * ternary/etc structure. While this is where the live range starts, the value from the other
+	 * branch may also be used. As such, use the type of the PHI node for the following check. */
+	if (func_info->ssa.vars[ssa_var].phi_use_chain) {
+		ssa_var = func_info->ssa.vars[ssa_var].phi_use_chain->ssa_var;
+	}
+
+	uint32_t type = func_info->ssa.var_info[ssa_var].type;
+	return (type & (MAY_BE_STRING|MAY_BE_ARRAY|MAY_BE_OBJECT|MAY_BE_RESOURCE|MAY_BE_REF)) != 0;
 }
 
 void zend_foreach_op_array(zend_script *script, zend_op_array_func_t func, void *context)

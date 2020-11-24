@@ -28,10 +28,10 @@
 /* Let there be no top-level code beyond this point:
  * Only functions and classes, thanks!
  *
- * Minimum required PHP version: 7.0.0
+ * Minimum required PHP version: 7.1.0
  */
 
-function show_usage()
+function show_usage(): void
 {
     echo <<<HELP
 Synopsis:
@@ -87,15 +87,11 @@ Options:
     --help
     -h          This Help.
 
-    --html <file> Generate HTML output.
-
     --temp-source <sdir>  --temp-target <tdir> [--temp-urlbase <url>]
                 Write temporary files to <tdir> by replacing <sdir> from the
-                filenames to generate with <tdir>. If --html is being used and
-                <url> given then the generated links are relative and prefixed
-                with the given url. In general you want to make <sdir> the path
-                to your source files and <tdir> some patch in your web page
-                hierarchy with <url> pointing to <tdir>.
+                filenames to generate with <tdir>. In general you want to make
+                <sdir> the path to your source files and <tdir> some patch in
+                your web page hierarchy with <url> pointing to <tdir>.
 
     --keep-[all|php|skip|clean]
                 Do not delete 'all' files, 'php' test file, 'skip' or 'clean'
@@ -105,6 +101,10 @@ Options:
                 Set timeout for individual tests, where [n] is the number of
                 seconds. The default value is 60 seconds, or 300 seconds when
                 testing for memory leaks.
+
+    --context [n]
+                Sets the number of lines of surrounding context to print for diffs.
+                The default value is 3.
 
     --show-[all|php|skip|clean|exp|diff|out|mem]
                 Show 'all' files, 'php' test file, 'skip' or 'clean' file. You
@@ -118,6 +118,13 @@ Options:
 
     --no-clean  Do not execute clean section if any.
 
+    --color
+    --no-color  Do/Don't colorize the result type in the test result.
+
+    --repeat [n]
+                Run the tests multiple times in the same process and check the
+                output of the last execution (CLI SAPI only).
+
 
 HELP;
 }
@@ -129,7 +136,7 @@ HELP;
  * code that was previously found at the top level. It could and should be
  * refactored to be smaller and more manageable.
  */
-function main()
+function main(): void
 {
     /* This list was derived in a naïve mechanical fashion. If a member
      * looks like it doesn't belong, it probably doesn't; cull at will.
@@ -137,16 +144,17 @@ function main()
     global $DETAILED, $PHP_FAILED_TESTS, $SHOW_ONLY_GROUPS, $argc, $argv, $cfg,
            $cfgfiles, $cfgtypes, $conf_passed, $end_time, $environment,
            $exts_skipped, $exts_tested, $exts_to_test, $failed_tests_file,
-           $html_file, $html_output, $ignored_by_ext, $ini_overwrites, $is_switch,
+           $ignored_by_ext, $ini_overwrites, $is_switch, $colorize,
            $just_save_results, $log_format, $matches, $no_clean, $no_file_cache,
            $optionals, $output_file, $pass_option_n, $pass_options,
            $pattern_match, $php, $php_cgi, $phpdbg, $preload, $redir_tests,
            $repeat, $result_tests_file, $slow_min_ms, $start_time, $switch,
-           $temp_source, $temp_target, $temp_urlbase, $test_cnt, $test_dirs,
+           $temp_source, $temp_target, $test_cnt, $test_dirs,
            $test_files, $test_idx, $test_list, $test_results, $testfile,
-           $user_tests, $valgrind, $sum_results, $shuffle, $file_cache;
+           $user_tests, $valgrind, $sum_results, $shuffle, $file_cache, $num_repeats;
     // Parallel testing
     global $workers, $workerID;
+    global $context_line_count;
 
     define('IS_WINDOWS', substr(PHP_OS, 0, 3) == "WIN");
 
@@ -187,7 +195,7 @@ function main()
 
     error_reporting(E_ALL);
 
-    $environment = $_ENV ?? array();
+    $environment = $_ENV ?? [];
 
     // Some configurations like php.ini-development set variables_order="GPCS"
     // not "EGPCS", in which case $_ENV is NOT populated. Detect if the $_ENV
@@ -303,18 +311,18 @@ function main()
     if (getenv('SHOW_ONLY_GROUPS')) {
         $SHOW_ONLY_GROUPS = explode(",", getenv('SHOW_ONLY_GROUPS'));
     } else {
-        $SHOW_ONLY_GROUPS = array();
+        $SHOW_ONLY_GROUPS = [];
     }
 
     // Check whether user test dirs are requested.
     if (getenv('TEST_PHP_USER')) {
         $user_tests = explode(',', getenv('TEST_PHP_USER'));
     } else {
-        $user_tests = array();
+        $user_tests = [];
     }
 
-    $exts_to_test = array();
-    $ini_overwrites = array(
+    $exts_to_test = [];
+    $ini_overwrites = [
         'output_handler=',
         'open_basedir=',
         'disable_functions=',
@@ -341,10 +349,15 @@ function main()
         'opcache.fast_shutdown=0',
         'opcache.file_update_protection=0',
         'opcache.revalidate_freq=0',
+        'opcache.jit_hot_loop=1',
+        'opcache.jit_hot_func=1',
+        'opcache.jit_hot_return=1',
+        'opcache.jit_hot_side_exit=1',
         'zend.assertions=1',
         'zend.exception_ignore_args=0',
+        'zend.exception_string_param_max_len=15',
         'short_open_tag=0',
-    );
+    ];
 
     $no_file_cache = '-d opcache.file_cache= -d opcache.file_cache_only=0';
 
@@ -355,18 +368,18 @@ function main()
 
     // Determine the tests to be run.
 
-    $test_files = array();
-    $redir_tests = array();
-    $test_results = array();
-    $PHP_FAILED_TESTS = array(
-        'BORKED' => array(),
-        'FAILED' => array(),
-        'WARNED' => array(),
-        'LEAKED' => array(),
-        'XFAILED' => array(),
-        'XLEAKED' => array(),
-        'SLOW' => array()
-    );
+    $test_files = [];
+    $redir_tests = [];
+    $test_results = [];
+    $PHP_FAILED_TESTS = [
+        'BORKED' => [],
+        'FAILED' => [],
+        'WARNED' => [],
+        'LEAKED' => [],
+        'XFAILED' => [],
+        'XLEAKED' => [],
+        'SLOW' => []
+    ];
 
     // If parameters given assume they represent selected tests to run.
     $result_tests_file = false;
@@ -378,26 +391,32 @@ function main()
 
     $just_save_results = false;
     $valgrind = null;
-    $html_output = false;
-    $html_file = null;
     $temp_source = null;
     $temp_target = null;
-    $temp_urlbase = null;
     $conf_passed = null;
     $no_clean = false;
+    $colorize = true;
+    if (function_exists('sapi_windows_vt100_support') && !sapi_windows_vt100_support(STDOUT, true)) {
+        $colorize = false;
+    }
+    if (array_key_exists('NO_COLOR', $_ENV)) {
+        $colorize = false;
+    }
     $selected_tests = false;
     $slow_min_ms = INF;
     $preload = false;
     $file_cache = null;
     $shuffle = false;
     $workers = null;
+    $context_line_count = 3;
+    $num_repeats = 1;
 
-    $cfgtypes = array('show', 'keep');
-    $cfgfiles = array('skip', 'php', 'clean', 'out', 'diff', 'exp', 'mem');
-    $cfg = array();
+    $cfgtypes = ['show', 'keep'];
+    $cfgfiles = ['skip', 'php', 'clean', 'out', 'diff', 'exp', 'mem'];
+    $cfg = [];
 
     foreach ($cfgtypes as $type) {
-        $cfg[$type] = array();
+        $cfg[$type] = [];
 
         foreach ($cfgfiles as $file) {
             $cfg[$type][$file] = false;
@@ -405,7 +424,7 @@ function main()
     }
 
     if (!isset($argc, $argv) || !$argc) {
-        $argv = array(__FILE__);
+        $argv = [__FILE__];
         $argc = 1;
     }
 
@@ -464,9 +483,9 @@ function main()
                     $test_list = file($argv[++$i]);
                     if ($test_list) {
                         foreach ($test_list as $test) {
-                            $matches = array();
+                            $matches = [];
                             if (preg_match('/^#.*\[(.*)\]\:\s+(.*)$/', $test, $matches)) {
-                                $redir_tests[] = array($matches[1], $matches[2]);
+                                $redir_tests[] = [$matches[1], $matches[2]];
                             } else {
                                 if (strlen($test)) {
                                     $test_files[] = trim($test);
@@ -531,6 +550,12 @@ function main()
                 case '--no-clean':
                     $no_clean = true;
                     break;
+                case '--color':
+                    $colorize = true;
+                    break;
+                case '--no-color':
+                    $colorize = false;
+                    break;
                 case 'p':
                     $php = $argv[++$i];
                     putenv("TEST_PHP_EXECUTABLE=$php");
@@ -553,6 +578,13 @@ function main()
                 case '--set-timeout':
                     $environment['TEST_TIMEOUT'] = $argv[++$i];
                     break;
+                case '--context':
+                    $context_line_count = $argv[++$i] ?? '';
+                    if (!preg_match('/^\d+$/', $context_line_count)) {
+                        error("'$context_line_count' is not a valid number of lines of context, try e.g. --context 3 for 3 lines");
+                    }
+                    $context_line_count = intval($context_line_count, 10);
+                    break;
                 case '--show-all':
                     foreach ($cfgfiles as $file) {
                         $cfg['show'][$file] = true;
@@ -566,12 +598,6 @@ function main()
                     break;
                 case '--temp-target':
                     $temp_target = $argv[++$i];
-                    if ($temp_urlbase) {
-                        $temp_urlbase = $temp_target;
-                    }
-                    break;
-                case '--temp-urlbase':
-                    $temp_urlbase = $argv[++$i];
                     break;
                 case 'v':
                 case '--verbose':
@@ -587,16 +613,24 @@ function main()
                     $shuffle = true;
                     break;
                 case '--asan':
+                case '--msan':
                     $environment['USE_ZEND_ALLOC'] = 0;
                     $environment['USE_TRACKED_ALLOC'] = 1;
                     $environment['SKIP_ASAN'] = 1;
                     $environment['SKIP_PERF_SENSITIVE'] = 1;
+                    if ($switch === '--msan') {
+                        $environment['SKIP_MSAN'] = 1;
+                    }
 
                     $lsanSuppressions = __DIR__ . '/azure/lsan-suppressions.txt';
                     if (file_exists($lsanSuppressions)) {
                         $environment['LSAN_OPTIONS'] = 'suppressions=' . $lsanSuppressions
                             . ':print_suppressions=0';
                     }
+                    break;
+                case '--repeat':
+                    $num_repeats = (int) $argv[++$i];
+                    $environment['SKIP_REPEAT'] = 1;
                     break;
                 //case 'w'
                 case '-':
@@ -605,10 +639,6 @@ function main()
                     if ($switch != '-') {
                         $repeat = true;
                     }
-                    break;
-                case '--html':
-                    $html_file = fopen($argv[++$i], 'wt');
-                    $html_output = is_resource($html_file);
                     break;
                 case '--version':
                     echo '$Id$' . "\n";
@@ -691,19 +721,11 @@ function main()
         usort($test_files, "test_sort");
         $start_time = time();
 
-        if (!$html_output) {
-            echo "Running selected tests.\n";
-        } else {
-            show_start($start_time);
-        }
+        echo "Running selected tests.\n";
 
         $test_idx = 0;
         run_all_tests($test_files, $environment);
         $end_time = time();
-
-        if ($html_output) {
-            show_end($end_time);
-        }
 
         if ($failed_tests_file) {
             fclose($failed_tests_file);
@@ -719,28 +741,21 @@ function main()
         }
 
         compute_summary();
-        if ($html_output) {
-            fwrite($html_file, "<hr/>\n" . get_summary(false, true));
-        }
         echo "=====================================================================";
-        echo get_summary(false, false);
-
-        if ($html_output) {
-            fclose($html_file);
-        }
+        echo get_summary(false);
 
         if ($output_file != '' && $just_save_results) {
             save_or_mail_results();
         }
     } else {
         // Compile a list of all test files (*.phpt).
-        $test_files = array();
+        $test_files = [];
         $exts_tested = count($exts_to_test);
         $exts_skipped = 0;
         $ignored_by_ext = 0;
         sort($exts_to_test);
-        $test_dirs = array();
-        $optionals = array('Zend', 'tests', 'ext', 'sapi');
+        $test_dirs = [];
+        $optionals = ['Zend', 'tests', 'ext', 'sapi'];
 
         foreach ($optionals as $dir) {
             if (is_dir($dir)) {
@@ -792,10 +807,6 @@ function main()
         show_end($end_time);
         show_summary();
 
-        if ($html_output) {
-            fclose($html_file);
-        }
-
         save_or_mail_results();
     }
 
@@ -807,6 +818,9 @@ function main()
 }
 
 if (!function_exists("hrtime")) {
+    /**
+     * @return array|float|int
+     */
     function hrtime(bool $as_num = false)
     {
         $t = microtime(true);
@@ -816,11 +830,11 @@ if (!function_exists("hrtime")) {
         }
 
         $s = floor($t);
-        return array(0 => $s, 1 => ($t - $s) * 1000000000);
+        return [0 => $s, 1 => ($t - $s) * 1000000000];
     }
 }
 
-function verify_config()
+function verify_config(): void
 {
     global $php;
 
@@ -833,7 +847,7 @@ function verify_config()
     }
 }
 
-function write_information()
+function write_information(): void
 {
     global $php, $php_cgi, $phpdbg, $php_info, $user_tests, $ini_overwrites, $pass_options, $exts_to_test, $valgrind, $no_file_cache;
 
@@ -848,7 +862,7 @@ PHP_OS      : " , PHP_OS , " - " , php_uname() , "
 INI actual  : " , realpath(get_cfg_var("cfg_file_path")) , "
 More .INIs  : " , (function_exists(\'php_ini_scanned_files\') ? str_replace("\n","", php_ini_scanned_files()) : "** not determined **"); ?>';
     save_text($info_file, $php_info);
-    $info_params = array();
+    $info_params = [];
     settings2array($ini_overwrites, $info_params);
     $info_params = settings2params($info_params);
     $php_info = `$php $pass_options $info_params $no_file_cache "$info_file"`;
@@ -880,13 +894,13 @@ More .INIs  : " , (function_exists(\'php_ini_scanned_files\') ? str_replace("\n"
         '<?php echo str_replace("Zend OPcache", "opcache", implode(",", get_loaded_extensions())); ?>');
     $exts_to_test = explode(',', `$php $pass_options $info_params $no_file_cache "$info_file"`);
     // check for extensions that need special handling and regenerate
-    $info_params_ex = array(
-        'session' => array('session.auto_start=0'),
-        'tidy' => array('tidy.clean_output=0'),
-        'zlib' => array('zlib.output_compression=Off'),
-        'xdebug' => array('xdebug.default_enable=0','xdebug.mode=off'),
-        'mbstring' => array('mbstring.func_overload=0'),
-    );
+    $info_params_ex = [
+        'session' => ['session.auto_start=0'],
+        'tidy' => ['tidy.clean_output=0'],
+        'zlib' => ['zlib.output_compression=Off'],
+        'xdebug' => ['xdebug.mode=off'],
+        'mbstring' => ['mbstring.func_overload=0'],
+    ];
 
     foreach ($info_params_ex as $ext => $ini_overwrites_ex) {
         if (in_array($ext, $exts_to_test)) {
@@ -914,7 +928,7 @@ VALGRIND    : " . ($valgrind ? $valgrind->getHeader() : 'Not used') . "
 ";
 }
 
-function save_or_mail_results()
+function save_or_mail_results(): void
 {
     global $sum_results, $just_save_results, $failed_test_summary,
            $PHP_FAILED_TESTS, $php, $output_file;
@@ -934,7 +948,7 @@ function save_or_mail_results()
         flush();
 
         $user_input = fgets($fp, 10);
-        $just_save_results = (strtolower($user_input[0]) == 's');
+        $just_save_results = (!empty($user_input) && strtolower($user_input[0]) === 's');
     }
 
     if ($just_save_results || !getenv('NO_INTERACTION') || TRAVIS_CI) {
@@ -962,7 +976,7 @@ function save_or_mail_results()
             $failed_tests_data = '';
             $sep = "\n" . str_repeat('=', 80) . "\n";
             $failed_tests_data .= $failed_test_summary . "\n";
-            $failed_tests_data .= get_summary(true, false) . "\n";
+            $failed_tests_data .= get_summary(true) . "\n";
 
             if ($sum_results['FAILED']) {
                 foreach ($PHP_FAILED_TESTS['FAILED'] as $test_info) {
@@ -999,7 +1013,7 @@ function save_or_mail_results()
                 }
 
                 /* Try the most common flags for 'version' */
-                $flags = array('-v', '-V', '--version');
+                $flags = ['-v', '-V', '--version'];
                 $cc_status = 0;
 
                 foreach ($flags as $flag) {
@@ -1044,14 +1058,14 @@ function save_or_mail_results()
     }
 }
 
-function find_files($dir, $is_ext_dir = false, $ignore = false)
+function find_files(string $dir, bool $is_ext_dir = false, bool $ignore = false): void
 {
     global $test_files, $exts_to_test, $ignored_by_ext, $exts_skipped;
 
     $o = opendir($dir) or error("cannot open directory: $dir");
 
     while (($name = readdir($o)) !== false) {
-        if (is_dir("{$dir}/{$name}") && !in_array($name, array('.', '..', '.svn'))) {
+        if (is_dir("{$dir}/{$name}") && !in_array($name, ['.', '..', '.svn'])) {
             $skip_ext = ($is_ext_dir && !in_array(strtolower($name), $exts_to_test));
             if ($skip_ext) {
                 $exts_skipped++;
@@ -1079,7 +1093,10 @@ function find_files($dir, $is_ext_dir = false, $ignore = false)
     closedir($o);
 }
 
-function test_name($name)
+/**
+ * @param array|string $name
+ */
+function test_name($name): string
 {
     if (is_array($name)) {
         return $name[0] . ':' . $name[1];
@@ -1087,8 +1104,11 @@ function test_name($name)
         return $name;
     }
 }
-
-function test_sort($a, $b)
+/**
+ * @param array|string $a
+ * @param array|string $b
+ */
+function test_sort($a, $b): int
 {
     $a = test_name($a);
     $b = test_name($b);
@@ -1109,7 +1129,7 @@ function test_sort($a, $b)
 // Send Email to QA Team
 //
 
-function mail_qa_team($data, $status = false)
+function mail_qa_team(string $data, bool $status = false): bool
 {
     $url_bits = parse_url(QA_SUBMISSION_PAGE);
 
@@ -1148,14 +1168,14 @@ function mail_qa_team($data, $status = false)
     fwrite($fs, "\r\n\r\n");
     fclose($fs);
 
-    return 1;
+    return true;
 }
 
 //
 //  Write the given text to a temporary file, and return the filename.
 //
 
-function save_text($filename, $text, $filename_copy = null)
+function save_text(string $filename, string $text, ?string $filename_copy = null): void
 {
     global $DETAILED;
 
@@ -1182,7 +1202,7 @@ $text
 //  Write an error in a format recognizable to Emacs or MSVC.
 //
 
-function error_report($testname, $logname, $tested)
+function error_report(string $testname, string $logname, string $tested): void
 {
     $testname = realpath($testname);
     $logname = realpath($logname);
@@ -1199,28 +1219,37 @@ function error_report($testname, $logname, $tested)
     }
 }
 
-function system_with_timeout($commandline, $env = null, $stdin = null, $captureStdIn = true, $captureStdOut = true, $captureStdErr = true)
-{
+/**
+ * @return false|string
+ */
+function system_with_timeout(
+    string $commandline,
+    ?array $env = null,
+    ?string $stdin = null,
+    bool $captureStdIn = true,
+    bool $captureStdOut = true,
+    bool $captureStdErr = true
+) {
     global $valgrind;
 
     $data = '';
 
-    $bin_env = array();
+    $bin_env = [];
     foreach ((array) $env as $key => $value) {
         $bin_env[$key] = $value;
     }
 
-    $descriptorspec = array();
+    $descriptorspec = [];
     if ($captureStdIn) {
-        $descriptorspec[0] = array('pipe', 'r');
+        $descriptorspec[0] = ['pipe', 'r'];
     }
     if ($captureStdOut) {
-        $descriptorspec[1] = array('pipe', 'w');
+        $descriptorspec[1] = ['pipe', 'w'];
     }
     if ($captureStdErr) {
-        $descriptorspec[2] = array('pipe', 'w');
+        $descriptorspec[2] = ['pipe', 'w'];
     }
-    $proc = proc_open($commandline, $descriptorspec, $pipes, TEST_PHP_SRCDIR, $bin_env, array('suppress_errors' => true));
+    $proc = proc_open($commandline, $descriptorspec, $pipes, TEST_PHP_SRCDIR, $bin_env, ['suppress_errors' => true]);
 
     if (!$proc) {
         return false;
@@ -1280,7 +1309,10 @@ function system_with_timeout($commandline, $env = null, $stdin = null, $captureS
     return $data;
 }
 
-function run_all_tests($test_files, $env, $redir_tested = null)
+/**
+ * @param string|array|null $redir_tested
+ */
+function run_all_tests(array $test_files, array $env, $redir_tested = null): void
 {
     global $test_results, $failed_tests_file, $result_tests_file, $php, $test_idx, $file_cache;
     // Parallel testing
@@ -1348,8 +1380,10 @@ function run_all_tests($test_files, $env, $redir_tested = null)
     }
 }
 
-/** The heart of parallel testing. */
-function run_all_tests_parallel($test_files, $env, $redir_tested)
+/** The heart of parallel testing.
+ * @param string|array|null $redir_tested
+ */
+function run_all_tests_parallel(array $test_files, array $env, $redir_tested): void
 {
     global $workers, $test_idx, $test_cnt, $test_results, $failed_tests_file, $result_tests_file, $PHP_FAILED_TESTS, $shuffle, $SHOW_ONLY_GROUPS, $valgrind;
 
@@ -1412,7 +1446,7 @@ function run_all_tests_parallel($test_files, $env, $redir_tested)
     // Don't start more workers than test files.
     $workers = max(1, min($workers, count($test_files)));
 
-    echo "Spawning workers… ";
+    echo "Spawning $workers workers... ";
 
     // We use sockets rather than STDIN/STDOUT for comms because on Windows,
     // those can't be non-blocking for some reason.
@@ -1428,6 +1462,7 @@ function run_all_tests_parallel($test_files, $env, $redir_tested)
     $sockUri = "tcp://$sockHost:$sockPort";
     $totalFileCount = count($test_files);
 
+    $startTime = microtime(true);
     for ($i = 1; $i <= $workers; $i++) {
         $proc = proc_open(
             $thisPHP . ' ' . escapeshellarg($thisScript),
@@ -1448,16 +1483,17 @@ function run_all_tests_parallel($test_files, $env, $redir_tested)
             error("Failed to spawn worker $i");
         }
         $workerProcs[$i] = $proc;
+    }
 
+    for ($i = 1; $i <= $workers; $i++) {
         $workerSock = stream_socket_accept($listenSock, 5);
         if ($workerSock === false) {
             kill_children($workerProcs);
-            error("Failed to accept connection from worker $i");
+            error("Failed to accept connection from worker.");
         }
 
         $greeting = base64_encode(serialize([
             "type" => "hello",
-            "workerID" => $i,
             "GLOBALS" => $GLOBALS,
             "constants" => [
                 "INIT_DIR" => INIT_DIR,
@@ -1472,29 +1508,28 @@ function run_all_tests_parallel($test_files, $env, $redir_tested)
         stream_set_timeout($workerSock, 5);
         if (fwrite($workerSock, $greeting) === false) {
             kill_children($workerProcs);
-            error("Failed to send greeting to worker $i.");
+            error("Failed to send greeting to worker.");
         }
 
         $rawReply = fgets($workerSock);
         if ($rawReply === false) {
             kill_children($workerProcs);
-            error("Failed to read greeting reply from worker $i.");
+            error("Failed to read greeting reply from worker.");
         }
 
         $reply = unserialize(base64_decode($rawReply));
-        if (!$reply || $reply["type"] !== "hello_reply" || $reply["workerID"] !== $i) {
+        if (!$reply || $reply["type"] !== "hello_reply") {
             kill_children($workerProcs);
-            error("Greeting reply from worker $i unexpected or could not be decoded: '$rawReply'");
+            error("Greeting reply from worker unexpected or could not be decoded: '$rawReply'");
         }
 
         stream_set_timeout($workerSock, 0);
         stream_set_blocking($workerSock, false);
 
-        $workerSocks[$i] = $workerSock;
-
-        echo "$i ";
+        $workerID = $reply["workerID"];
+        $workerSocks[$workerID] = $workerSock;
     }
-    echo "… done!\n";
+    printf("Done in %.2fs\n", microtime(true) - $startTime);
     echo "=====================================================================\n";
     echo "\n";
 
@@ -1671,7 +1706,7 @@ escape:
     }
 }
 
-function send_message($stream, array $message)
+function send_message($stream, array $message): void
 {
     $blocking = stream_get_meta_data($stream)["blocked"];
     stream_set_blocking($stream, true);
@@ -1679,7 +1714,7 @@ function send_message($stream, array $message)
     stream_set_blocking($stream, $blocking);
 }
 
-function kill_children(array $children)
+function kill_children(array $children): void
 {
     foreach ($children as $child) {
         if ($child) {
@@ -1688,7 +1723,7 @@ function kill_children(array $children)
     }
 }
 
-function run_worker()
+function run_worker(): void
 {
     global $workerID, $workerSock;
 
@@ -1698,11 +1733,11 @@ function run_worker()
 
     $greeting = fgets($workerSock);
     $greeting = unserialize(base64_decode($greeting)) or die("Could not decode greeting\n");
-    if ($greeting["type"] !== "hello" || $greeting["workerID"] !== $workerID) {
-        error("Unexpected greeting of type $greeting[type] and for worker $greeting[workerID]");
+    if ($greeting["type"] !== "hello") {
+        error("Unexpected greeting of type $greeting[type]");
     }
 
-    set_error_handler(function ($errno, $errstr, $errfile, $errline) use ($workerSock) {
+    set_error_handler(function (int $errno, string $errstr, string $errfile, int $errline) use ($workerSock): bool {
         if (error_reporting() & $errno) {
             send_message($workerSock, compact('errno', 'errstr', 'errfile', 'errline') + [
                 'type' => 'php_error'
@@ -1755,13 +1790,19 @@ function run_worker()
 //
 //  Show file or result block
 //
-function show_file_block($file, $block, $section = null)
+function show_file_block(string $file, string $block, ?string $section = null): void
 {
     global $cfg;
+    global $colorize;
 
     if ($cfg['show'][$file]) {
         if (is_null($section)) {
             $section = strtoupper($file);
+        }
+        if ($section === 'DIFF' && $colorize) {
+            // '-' is Light Red for removal, '+' is Light Green for addition
+            $block = preg_replace('/^[0-9]+\-\s.*$/m', "\e[1;31m\\0\e[0m", $block);
+            $block = preg_replace('/^[0-9]+\+\s.*$/m', "\e[1;32m\\0\e[0m", $block);
         }
 
         echo "\n========" . $section . "========\n";
@@ -1770,10 +1811,20 @@ function show_file_block($file, $block, $section = null)
     }
 }
 
+function skip_test(string $tested, string $tested_file, string $shortname, string $reason) {
+    show_result('SKIP', $tested, $tested_file, "reason: $reason");
+    junit_init_suite(junit_get_suitename_for($shortname));
+    junit_mark_test_as('SKIP', $shortname, $tested, 0, $reason);
+    return 'SKIPPED';
+}
+
 //
 //  Run an individual test case.
 //
-function run_test($php, $file, $env)
+/**
+ * @param string|array $file
+ */
+function run_test(string $php, $file, array $env): string
 {
     global $log_format, $ini_overwrites, $PHP_FAILED_TESTS;
     global $pass_options, $DETAILED, $IN_REDIRECT, $test_cnt, $test_idx;
@@ -1783,6 +1834,7 @@ function run_test($php, $file, $env)
     global $no_file_cache;
     global $slow_min_ms;
     global $preload, $file_cache;
+    global $num_repeats;
     // Parallel testing
     global $workerID;
     $temp_filenames = null;
@@ -1808,7 +1860,7 @@ TEST $file
     }
 
     // Load the sections of the test file.
-    $section_text = array('TEST' => '');
+    $section_text = ['TEST' => ''];
 
     $fp = fopen($file, "rb") or error("Cannot open test file: $file");
 
@@ -1847,7 +1899,7 @@ TEST $file
             }
 
             // check for unknown sections
-            if (!in_array($section, array(
+            if (!in_array($section, [
                 'EXPECT', 'EXPECTF', 'EXPECTREGEX', 'EXPECTREGEX_EXTERNAL', 'EXPECT_EXTERNAL', 'EXPECTF_EXTERNAL', 'EXPECTHEADERS',
                 'POST', 'POST_RAW', 'GZIP_POST', 'DEFLATE_POST', 'PUT', 'GET', 'COOKIE', 'ARGS',
                 'FILE', 'FILEEOF', 'FILE_EXTERNAL', 'REDIRECTTEST',
@@ -1855,7 +1907,7 @@ TEST $file
                 'INI', 'ENV', 'EXTENSIONS',
                 'SKIPIF', 'XFAIL', 'XLEAK', 'CLEAN',
                 'CREDITS', 'DESCRIPTION', 'CONFLICTS', 'WHITESPACE_SENSITIVE',
-            ))) {
+            ])) {
                 $bork_info = 'Unknown section "' . $section . '"';
             }
 
@@ -1876,6 +1928,10 @@ TEST $file
         }
     }
 
+    $shortname = str_replace(TEST_PHP_SRCDIR . '/', '', $file);
+    $tested_file = $shortname;
+    $tested = trim($section_text['TEST']);
+
     // the redirect section allows a set of tests to be reused outside of
     // a given test dir
     if ($bork_info === null) {
@@ -1893,7 +1949,11 @@ TEST $file
                 unset($section_text['FILEEOF']);
             }
 
-            foreach (array('FILE', 'EXPECT', 'EXPECTF', 'EXPECTREGEX') as $prefix) {
+            if ($num_repeats > 1 && isset($section_text['FILE_EXTERNAL'])) {
+                return skip_test($tested, $tested_file, $shortname, 'Test with FILE_EXTERNAL might not be repeatable');
+            }
+
+            foreach (['FILE', 'EXPECT', 'EXPECTF', 'EXPECTREGEX'] as $prefix) {
                 $key = $prefix . '_EXTERNAL';
 
                 if (isset($section_text[$key])) {
@@ -1916,18 +1976,15 @@ TEST $file
     }
     fclose($fp);
 
-    $shortname = str_replace(TEST_PHP_SRCDIR . '/', '', $file);
-    $tested_file = $shortname;
-
     if ($bork_info !== null) {
         show_result("BORK", $bork_info, $tested_file);
-        $PHP_FAILED_TESTS['BORKED'][] = array(
+        $PHP_FAILED_TESTS['BORKED'][] = [
             'name' => $file,
             'test_name' => '',
             'output' => '',
             'diff' => '',
             'info' => "$bork_info [$file]",
-        );
+        ];
 
         junit_mark_test_as('BORK', $shortname, $tested_file, 0, $bork_info);
         return 'BORKED';
@@ -1948,8 +2005,6 @@ TEST $file
         $cmdRedirect = '';
     }
 
-    $tested = trim($section_text['TEST']);
-
     /* For GET/POST/PUT tests, check if cgi sapi is available and if it is, use it. */
     if (array_key_exists('CGI', $section_text) || !empty($section_text['GET']) || !empty($section_text['POST']) || !empty($section_text['GZIP_POST']) || !empty($section_text['DEFLATE_POST']) || !empty($section_text['POST_RAW']) || !empty($section_text['PUT']) || !empty($section_text['COOKIE']) || !empty($section_text['EXPECTHEADERS'])) {
         if (isset($php_cgi)) {
@@ -1964,12 +2019,11 @@ TEST $file
             } elseif (file_exists(dirname($php) . "/php-cgi")) {
                 $php = realpath(dirname($php) . "/php-cgi") . ' -C ';
             } else {
-                show_result('SKIP', $tested, $tested_file, "reason: CGI not available");
-
-                junit_init_suite(junit_get_suitename_for($shortname));
-                junit_mark_test_as('SKIP', $shortname, $tested, 0, 'CGI not available');
-                return 'SKIPPED';
+                return skip_test($tested, $tested_file, $shortname, 'CGI not available');
             }
+        }
+        if ($num_repeats > 1) {
+            return skip_test($tested, $tested_file, $shortname, 'CGI does not support --repeat');
         }
         $uses_cgi = true;
     }
@@ -1988,11 +2042,22 @@ TEST $file
             // be run straight away. For example, EXTENSIONS, SKIPIF, CLEAN.
             $extra_options = '-rr';
         } else {
-            show_result('SKIP', $tested, $tested_file, "reason: phpdbg not available");
+            return skip_test($tested, $tested_file, $shortname, 'phpdbg not available');
+        }
+        if ($num_repeats > 1) {
+            return skip_test($tested, $tested_file, $shortname, 'phpdbg does not support --repeat');
+        }
+    }
 
-            junit_init_suite(junit_get_suitename_for($shortname));
-            junit_mark_test_as('SKIP', $shortname, $tested, 0, 'phpdbg not available');
-            return 'SKIPPED';
+    if ($num_repeats > 1) {
+        if (array_key_exists('CLEAN', $section_text)) {
+            return skip_test($tested, $tested_file, $shortname, 'Test with CLEAN might not be repeatable');
+        }
+        if (array_key_exists('STDIN', $section_text)) {
+            return skip_test($tested, $tested_file, $shortname, 'Test with STDIN might not be repeatable');
+        }
+        if (array_key_exists('CAPTURE_STDIO', $section_text)) {
+            return skip_test($tested, $tested_file, $shortname, 'Test with CAPTURE_STDIO might not be repeatable');
         }
     }
 
@@ -2042,7 +2107,7 @@ TEST $file
             save_text($copy_file, $section_text['FILE']);
         }
 
-        $temp_filenames = array(
+        $temp_filenames = [
             'file' => $copy_file,
             'diff' => $diff_filename,
             'log' => $log_filename,
@@ -2053,7 +2118,7 @@ TEST $file
             'php' => $temp_file,
             'skip' => $temp_skipif,
             'clean' => $temp_clean
-        );
+        ];
     }
 
     if (is_array($IN_REDIRECT)) {
@@ -2099,11 +2164,11 @@ TEST $file
     }
 
     // Default ini settings
-    $ini_settings = $workerID ? array('opcache.cache_id' => "worker$workerID") : array();
+    $ini_settings = $workerID ? ['opcache.cache_id' => "worker$workerID"] : [];
 
     // Additional required extensions
     if (array_key_exists('EXTENSIONS', $section_text)) {
-        $ext_params = array();
+        $ext_params = [];
         settings2array($ini_overwrites, $ext_params);
         $ext_params = settings2params($ext_params);
         $ext_dir = `$php $pass_options $extra_options $ext_params $no_file_cache -d display_errors=0 -r "echo ini_get('extension_dir');"`;
@@ -2138,6 +2203,9 @@ TEST $file
             // even though all the files are re-created.
             $ini_settings['opcache.validate_timestamps'] = '0';
         }
+    } else if ($num_repeats > 1) {
+        // Make sure warnings still show up on the second run.
+        $ini_settings['opcache.record_warnings'] = '1';
     }
 
     // Any special ini settings
@@ -2148,6 +2216,10 @@ TEST $file
         $replacement = IS_WINDOWS ? '"' . PHP_BINARY . ' -r \"while ($in = fgets(STDIN)) echo $in;\" > $1"' : 'tee $1 >/dev/null';
         $section_text['INI'] = preg_replace('/{MAIL:(\S+)}/', $replacement, $section_text['INI']);
         settings2array(preg_split("/[\n\r]+/", $section_text['INI']), $ini_settings);
+
+        if ($num_repeats > 1 && isset($ini_settings['opcache.opt_debug_level'])) {
+            return skip_test($tested, $tested_file, $shortname, 'opt_debug_level tests are not repeatable');
+        }
     }
 
     $ini_settings = settings2params($ini_settings);
@@ -2207,13 +2279,13 @@ TEST $file
                 $section_text['XFAIL'] = ltrim(substr($output, 5));
             } elseif ($output !== '') {
                 show_result("BORK", $output, $tested_file, 'reason: invalid output from SKIPIF', $temp_filenames);
-                $PHP_FAILED_TESTS['BORKED'][] = array(
+                $PHP_FAILED_TESTS['BORKED'][] = [
                     'name' => $file,
                     'test_name' => '',
                     'output' => '',
                     'diff' => '',
                     'info' => "$output [$file]",
-                );
+                ];
 
                 junit_mark_test_as('BORK', $shortname, $tested, null, $output);
                 return 'BORKED';
@@ -2231,7 +2303,7 @@ TEST $file
     }
 
     if (isset($section_text['REDIRECTTEST'])) {
-        $test_files = array();
+        $test_files = [];
 
         $IN_REDIRECT = eval($section_text['REDIRECTTEST']);
         $IN_REDIRECT['via'] = "via [$shortname]\n\t";
@@ -2246,7 +2318,7 @@ TEST $file
                 find_files($IN_REDIRECT['TESTS']);
 
                 foreach ($GLOBALS['test_files'] as $f) {
-                    $test_files[] = array($f, $file);
+                    $test_files[] = [$f, $file];
                 }
             }
             $test_cnt += count($test_files) - 1;
@@ -2271,13 +2343,13 @@ TEST $file
         } else {
             $bork_info = "Redirect info must contain exactly one TEST string to be used as redirect directory.";
             show_result("BORK", $bork_info, '', '', $temp_filenames);
-            $PHP_FAILED_TESTS['BORKED'][] = array(
+            $PHP_FAILED_TESTS['BORKED'][] = [
                 'name' => $file,
                 'test_name' => '',
                 'output' => '',
                 'diff' => '',
                 'info' => "$bork_info [$file]",
-            );
+            ];
         }
     }
 
@@ -2288,13 +2360,13 @@ TEST $file
 
         $bork_info = "Redirected test did not contain redirection info";
         show_result("BORK", $bork_info, '', '', $temp_filenames);
-        $PHP_FAILED_TESTS['BORKED'][] = array(
+        $PHP_FAILED_TESTS['BORKED'][] = [
             'name' => $file,
             'test_name' => '',
             'output' => '',
             'diff' => '',
             'info' => "$bork_info [$file]",
-        );
+        ];
 
         junit_mark_test_as('BORK', $shortname, $tested, null, $bork_info);
 
@@ -2449,7 +2521,8 @@ TEST $file
         $env['CONTENT_TYPE'] = '';
         $env['CONTENT_LENGTH'] = '';
 
-        $cmd = "$php $pass_options $ini_settings -f \"$test_file\" $args$cmdRedirect";
+        $repeat_option = $num_repeats > 1 ? "--repeat $num_repeats" : "";
+        $cmd = "$php $pass_options $repeat_option $ini_settings -f \"$test_file\" $args$cmdRedirect";
     }
 
     if ($valgrind) {
@@ -2483,13 +2556,13 @@ COMMAND $cmd
     $hrtime = hrtime();
     $time = $hrtime[0] * 1000000000 + $hrtime[1] - $startTime;
     if ($time >= $slow_min_ms * 1000000) {
-        $PHP_FAILED_TESTS['SLOW'][] = array(
+        $PHP_FAILED_TESTS['SLOW'][] = [
             'name' => $file,
             'test_name' => (is_array($IN_REDIRECT) ? $IN_REDIRECT['via'] : '') . $tested . " [$tested_file]",
             'output' => '',
             'diff' => '',
             'info' => $time / 1000000000,
-        );
+        ];
     }
 
     if (array_key_exists('CLEAN', $section_text) && (!$no_clean || $cfg['keep']['clean'])) {
@@ -2522,11 +2595,30 @@ COMMAND $cmd
         }
     }
 
+    if ($num_repeats > 1) {
+        // In repeat mode, retain the output before the first execution,
+        // and of the last execution. Do this early, because the trimming below
+        // makes the newline handling complicated.
+        $separator1 = "Executing for the first time...\n";
+        $separator1_pos = strpos($out, $separator1);
+        if ($separator1_pos !== false) {
+            $separator2 = "Finished execution, repeating...\n";
+            $separator2_pos = strrpos($out, $separator2);
+            if ($separator2_pos !== false) {
+                $out = substr($out, 0, $separator1_pos)
+                     . substr($out, $separator2_pos + strlen($separator2));
+            } else {
+                $out = substr($out, 0, $separator1_pos)
+                     . substr($out, $separator1_pos + strlen($separator1));
+            }
+        }
+    }
+
     // Does the output match what is expected?
     $output = preg_replace("/\r\n/", "\n", trim($out));
 
     /* when using CGI, strip the headers from the output */
-    $headers = array();
+    $headers = [];
 
     if (!empty($uses_cgi) && preg_match("/^(.*?)\r?\n\r?\n(.*)/s", $out, $match)) {
         $output = trim($match[2]);
@@ -2543,8 +2635,8 @@ COMMAND $cmd
     $failed_headers = false;
 
     if (isset($section_text['EXPECTHEADERS'])) {
-        $want = array();
-        $wanted_headers = array();
+        $want = [];
+        $wanted_headers = [];
         $lines = preg_split("/[\n\r]+/", $section_text['EXPECTHEADERS']);
 
         foreach ($lines as $line) {
@@ -2555,7 +2647,7 @@ COMMAND $cmd
             }
         }
 
-        $output_headers = array();
+        $output_headers = [];
 
         foreach ($want as $k => $v) {
             if (isset($headers[$k])) {
@@ -2784,13 +2876,13 @@ $output
     show_result(implode('&', $restype), $tested, $tested_file, $info, $temp_filenames);
 
     foreach ($restype as $type) {
-        $PHP_FAILED_TESTS[$type . 'ED'][] = array(
+        $PHP_FAILED_TESTS[$type . 'ED'][] = [
             'name' => $file,
             'test_name' => (is_array($IN_REDIRECT) ? $IN_REDIRECT['via'] : '') . $tested . " [$tested_file]",
             'output' => $output_filename,
             'diff' => $diff_filename,
             'info' => $info,
-        );
+        ];
     }
 
     $diff = empty($diff) ? '' : preg_replace('/\e/', '<esc>', $diff);
@@ -2800,7 +2892,10 @@ $output
     return $restype[0] . 'ED';
 }
 
-function comp_line($l1, $l2, $is_reg)
+/**
+ * @return bool|int
+ */
+function comp_line(string $l1, string $l2, bool $is_reg)
 {
     if ($is_reg) {
         return preg_match('/^' . $l1 . '$/s', $l2);
@@ -2809,8 +2904,17 @@ function comp_line($l1, $l2, $is_reg)
     }
 }
 
-function count_array_diff($ar1, $ar2, $is_reg, $w, $idx1, $idx2, $cnt1, $cnt2, $steps)
-{
+function count_array_diff(
+    array $ar1,
+    array $ar2,
+    bool $is_reg,
+    array $w,
+    int $idx1,
+    int $idx2,
+    int $cnt1,
+    int $cnt2,
+    int $steps
+): int {
     $equal = 0;
 
     while ($idx1 < $cnt1 && $idx2 < $cnt2 && comp_line($ar1[$idx1], $ar2[$idx2], $is_reg)) {
@@ -2851,17 +2955,24 @@ function count_array_diff($ar1, $ar2, $is_reg, $w, $idx1, $idx2, $cnt1, $cnt2, $
     return $equal;
 }
 
-function generate_array_diff($ar1, $ar2, $is_reg, $w)
+function generate_array_diff(array $ar1, array $ar2, bool $is_reg, array $w): array
 {
+    global $context_line_count;
     $idx1 = 0;
     $cnt1 = @count($ar1);
     $idx2 = 0;
     $cnt2 = @count($ar2);
-    $diff = array();
-    $old1 = array();
-    $old2 = array();
+    $diff = [];
+    $old1 = [];
+    $old2 = [];
+    $number_len = max(3, strlen((string)max($cnt1 + 1, $cnt2 + 1)));
+    $line_number_spec = '%0' . $number_len . 'd';
+
+    /** Mapping from $idx2 to $idx1, including indexes of idx2 that are identical to idx1 as well as entries that don't have matches */
+    $mapping = [];
 
     while ($idx1 < $cnt1 && $idx2 < $cnt2) {
+        $mapping[$idx2] = $idx1;
         if (comp_line($ar1[$idx1], $ar2[$idx2], $is_reg)) {
             $idx1++;
             $idx2++;
@@ -2871,15 +2982,17 @@ function generate_array_diff($ar1, $ar2, $is_reg, $w)
             $c2 = @count_array_diff($ar1, $ar2, $is_reg, $w, $idx1, $idx2 + 1, $cnt1, $cnt2, 10);
 
             if ($c1 > $c2) {
-                $old1[$idx1] = sprintf("%03d- ", $idx1 + 1) . $w[$idx1++];
+                $old1[$idx1] = sprintf("{$line_number_spec}- ", $idx1 + 1) . $w[$idx1++];
             } elseif ($c2 > 0) {
-                $old2[$idx2] = sprintf("%03d+ ", $idx2 + 1) . $ar2[$idx2++];
+                $old2[$idx2] = sprintf("{$line_number_spec}+ ", $idx2 + 1) . $ar2[$idx2++];
             } else {
-                $old1[$idx1] = sprintf("%03d- ", $idx1 + 1) . $w[$idx1++];
-                $old2[$idx2] = sprintf("%03d+ ", $idx2 + 1) . $ar2[$idx2++];
+                $old1[$idx1] = sprintf("{$line_number_spec}- ", $idx1 + 1) . $w[$idx1++];
+                $old2[$idx2] = sprintf("{$line_number_spec}+ ", $idx2 + 1) . $ar2[$idx2++];
             }
+            $last_printed_context_line = $idx1;
         }
     }
+    $mapping[$idx2] = $idx1;
 
     reset($old1);
     $k1 = key($old1);
@@ -2887,21 +3000,51 @@ function generate_array_diff($ar1, $ar2, $is_reg, $w)
     reset($old2);
     $k2 = key($old2);
     $l2 = -2;
+    $old_k1 = -1;
+    $add_context_lines = function (int $new_k1) use (&$old_k1, &$diff, $w, $context_line_count, $number_len) {
+        if ($old_k1 >= $new_k1 || !$context_line_count) {
+            return;
+        }
+        $end = $new_k1 - 1;
+        $range_end = min($end, $old_k1 + $context_line_count);
+        if ($old_k1 >= 0) {
+            while ($old_k1 < $range_end) {
+                $diff[] = str_repeat(' ', $number_len + 2) . $w[$old_k1++];
+            }
+        }
+        if ($end - $context_line_count > $old_k1) {
+            $old_k1 = $end - $context_line_count;
+            if ($old_k1 > 0) {
+                // Add a '--' to mark sections where the common areas were truncated
+                $diff[] = '--';
+            }
+        }
+        $old_k1 = max($old_k1, 0);
+        while ($old_k1 < $end) {
+            $diff[] = str_repeat(' ', $number_len + 2) . $w[$old_k1++];
+        }
+        $old_k1 = $new_k1;
+    };
 
     while ($k1 !== null || $k2 !== null) {
         if ($k1 == $l1 + 1 || $k2 === null) {
+            $add_context_lines($k1);
             $l1 = $k1;
             $diff[] = current($old1);
+            $old_k1 = $k1;
             $k1 = next($old1) ? key($old1) : null;
         } elseif ($k2 == $l2 + 1 || $k1 === null) {
+            $add_context_lines($mapping[$k2]);
             $l2 = $k2;
             $diff[] = current($old2);
             $k2 = next($old2) ? key($old2) : null;
-        } elseif ($k1 < $k2) {
+        } elseif ($k1 < $mapping[$k2]) {
+            $add_context_lines($k1);
             $l1 = $k1;
             $diff[] = current($old1);
             $k1 = next($old1) ? key($old1) : null;
         } else {
+            $add_context_lines($mapping[$k2]);
             $l2 = $k2;
             $diff[] = current($old2);
             $k2 = next($old2) ? key($old2) : null;
@@ -2909,17 +3052,26 @@ function generate_array_diff($ar1, $ar2, $is_reg, $w)
     }
 
     while ($idx1 < $cnt1) {
-        $diff[] = sprintf("%03d- ", $idx1 + 1) . $w[$idx1++];
+        $add_context_lines($idx1 + 1);
+        $diff[] = sprintf("{$line_number_spec}- ", $idx1 + 1) . $w[$idx1++];
     }
 
     while ($idx2 < $cnt2) {
-        $diff[] = sprintf("%03d+ ", $idx2 + 1) . $ar2[$idx2++];
+        if (isset($mapping[$idx2])) {
+            $add_context_lines($mapping[$idx2] + 1);
+        }
+        $diff[] = sprintf("{$line_number_spec}+ ", $idx2 + 1) . $ar2[$idx2++];
+    }
+    $add_context_lines(min($old_k1 + $context_line_count + 1, $cnt1 + 1));
+    if ($context_line_count && $old_k1 < $cnt1 + 1) {
+        // Add a '--' to mark sections where the common areas were truncated
+        $diff[] = '--';
     }
 
     return $diff;
 }
 
-function generate_diff($wanted, $wanted_re, $output)
+function generate_diff(string $wanted, ?string $wanted_re, string $output): string
 {
     $w = explode("\n", $wanted);
     $o = explode("\n", $output);
@@ -2929,13 +3081,13 @@ function generate_diff($wanted, $wanted_re, $output)
     return implode(PHP_EOL, $diff);
 }
 
-function error($message)
+function error(string $message): void
 {
     echo "ERROR: {$message}\n";
     exit(1);
 }
 
-function settings2array($settings, &$ini_settings)
+function settings2array(array $settings, &$ini_settings): void
 {
     foreach ($settings as $setting) {
         if (strpos($setting, '=') !== false) {
@@ -2945,7 +3097,7 @@ function settings2array($settings, &$ini_settings)
 
             if ($name == 'extension' || $name == 'zend_extension') {
                 if (!isset($ini_settings[$name])) {
-                    $ini_settings[$name] = array();
+                    $ini_settings[$name] = [];
                 }
 
                 $ini_settings[$name][] = $value;
@@ -2956,7 +3108,7 @@ function settings2array($settings, &$ini_settings)
     }
 }
 
-function settings2params($ini_settings)
+function settings2params(array $ini_settings): string
 {
     $settings = '';
 
@@ -2985,13 +3137,13 @@ function settings2params($ini_settings)
     return $settings;
 }
 
-function compute_summary()
+function compute_summary(): void
 {
     global $n_total, $test_results, $ignored_by_ext, $sum_results, $percent_results;
 
     $n_total = count($test_results);
     $n_total += $ignored_by_ext;
-    $sum_results = array(
+    $sum_results = [
         'PASSED' => 0,
         'WARNED' => 0,
         'SKIPPED' => 0,
@@ -3000,21 +3152,21 @@ function compute_summary()
         'LEAKED' => 0,
         'XFAILED' => 0,
         'XLEAKED' => 0
-    );
+    ];
 
     foreach ($test_results as $v) {
         $sum_results[$v]++;
     }
 
     $sum_results['SKIPPED'] += $ignored_by_ext;
-    $percent_results = array();
+    $percent_results = [];
 
     foreach ($sum_results as $v => $n) {
         $percent_results[$v] = (100.0 * $n) / $n_total;
     }
 }
 
-function get_summary($show_ext_summary, $show_html)
+function get_summary(bool $show_ext_summary): string
 {
     global $exts_skipped, $exts_tested, $n_total, $sum_results, $percent_results, $end_time, $start_time, $failed_test_summary, $PHP_FAILED_TESTS, $valgrind;
 
@@ -3032,10 +3184,6 @@ function get_summary($show_ext_summary, $show_html)
     }
 
     $summary = '';
-
-    if ($show_html) {
-        $summary .= "<pre>\n";
-    }
 
     if ($show_ext_summary) {
         $summary .= '
@@ -3084,7 +3232,7 @@ Time taken      : ' . sprintf('%4d seconds', $end_time - $start_time) . '
     $failed_test_summary = '';
 
     if (count($PHP_FAILED_TESTS['SLOW'])) {
-        usort($PHP_FAILED_TESTS['SLOW'], function ($a, $b) {
+        usort($PHP_FAILED_TESTS['SLOW'], function (array $a, array $b): int {
             return $a['info'] < $b['info'] ? 1 : -1;
         });
 
@@ -3178,55 +3326,27 @@ EXPECTED LEAK TEST SUMMARY
         $summary .= $failed_test_summary;
     }
 
-    if ($show_html) {
-        $summary .= "</pre>";
-    }
-
     return $summary;
 }
 
-function show_start($start_time)
+function show_start($start_time): void
 {
-    global $html_output, $html_file;
-
-    if ($html_output) {
-        fwrite($html_file, "<h2>Time Start: " . date('Y-m-d H:i:s', $start_time) . "</h2>\n");
-        fwrite($html_file, "<table>\n");
-    }
-
     echo "TIME START " . date('Y-m-d H:i:s', $start_time) . "\n=====================================================================\n";
 }
 
-function show_end($end_time)
+function show_end($end_time): void
 {
-    global $html_output, $html_file;
-
-    if ($html_output) {
-        fwrite($html_file, "</table>\n");
-        fwrite($html_file, "<h2>Time End: " . date('Y-m-d H:i:s', $end_time) . "</h2>\n");
-    }
-
     echo "=====================================================================\nTIME END " . date('Y-m-d H:i:s', $end_time) . "\n";
 }
 
-function show_summary()
+function show_summary(): void
 {
-    global $html_output, $html_file;
-
-    if ($html_output) {
-        fwrite($html_file, "<hr/>\n" . get_summary(true, true));
-    }
-
-    echo get_summary(true, false);
+    echo get_summary(true);
 }
 
-function show_redirect_start($tests, $tested, $tested_file)
+function show_redirect_start(string $tests, string $tested, string $tested_file): void
 {
-    global $html_output, $html_file, $line_length, $SHOW_ONLY_GROUPS;
-
-    if ($html_output) {
-        fwrite($html_file, "<tr><td colspan='3'>---&gt; $tests ($tested [$tested_file]) begin</td></tr>\n");
-    }
+    global $SHOW_ONLY_GROUPS;
 
     if (!$SHOW_ONLY_GROUPS || in_array('REDIRECT', $SHOW_ONLY_GROUPS)) {
         echo "REDIRECT $tests ($tested [$tested_file]) begin\n";
@@ -3235,13 +3355,9 @@ function show_redirect_start($tests, $tested, $tested_file)
     }
 }
 
-function show_redirect_ends($tests, $tested, $tested_file)
+function show_redirect_ends(string $tests, string $tested, string $tested_file): void
 {
-    global $html_output, $html_file, $line_length, $SHOW_ONLY_GROUPS;
-
-    if ($html_output) {
-        fwrite($html_file, "<tr><td colspan='3'>---&gt; $tests ($tested [$tested_file]) done</td></tr>\n");
-    }
+    global $SHOW_ONLY_GROUPS;
 
     if (!$SHOW_ONLY_GROUPS || in_array('REDIRECT', $SHOW_ONLY_GROUPS)) {
         echo "REDIRECT $tests ($tested [$tested_file]) done\n";
@@ -3250,7 +3366,7 @@ function show_redirect_ends($tests, $tested, $tested_file)
     }
 }
 
-function show_test($test_idx, $shortname)
+function show_test(int $test_idx, string $shortname): void
 {
     global $test_cnt;
     global $line_length;
@@ -3261,7 +3377,7 @@ function show_test($test_idx, $shortname)
     flush();
 }
 
-function clear_show_test()
+function clear_show_test(): void
 {
     global $line_length;
     // Parallel testing
@@ -3280,61 +3396,41 @@ function parse_conflicts(string $text): array
     return array_map('trim', explode("\n", trim($text)));
 }
 
-function show_result($result, $tested, $tested_file, $extra = '', $temp_filenames = null)
-{
-    global $html_output, $html_file, $temp_target, $temp_urlbase, $line_length, $SHOW_ONLY_GROUPS;
+function show_result(
+    string $result,
+    string $tested,
+    string $tested_file,
+    string $extra = '',
+    ?array $temp_filenames = null
+): void {
+    global $SHOW_ONLY_GROUPS, $colorize;
 
     if (!$SHOW_ONLY_GROUPS || in_array($result, $SHOW_ONLY_GROUPS)) {
-        echo "$result $tested [$tested_file] $extra\n";
+        if ($colorize) {
+            /* Use ANSI escape codes for coloring test result */
+            switch ( $result ) {
+                case 'PASS': // Light Green
+                    $color = "\e[1;32m{$result}\e[0m"; break;
+                case 'FAIL':
+                case 'BORK':
+                case 'LEAK':
+                    // Light Red
+                    $color = "\e[1;31m{$result}\e[0m"; break;
+                default: // Yellow
+                    $color = "\e[1;33m{$result}\e[0m"; break;
+            }
+
+            echo "$color $tested [$tested_file] $extra\n";
+        } else {
+            echo "$result $tested [$tested_file] $extra\n";
+        }
     } elseif (!$SHOW_ONLY_GROUPS) {
         clear_show_test();
     }
 
-    if ($html_output) {
-        if (isset($temp_filenames['file']) && file_exists($temp_filenames['file'])) {
-            $url = str_replace($temp_target, $temp_urlbase, $temp_filenames['file']);
-            $tested = "<a href='$url'>$tested</a>";
-        }
-
-        if (isset($temp_filenames['skip']) && file_exists($temp_filenames['skip'])) {
-            if (empty($extra)) {
-                $extra = "skipif";
-            }
-
-            $url = str_replace($temp_target, $temp_urlbase, $temp_filenames['skip']);
-            $extra = "<a href='$url'>$extra</a>";
-        } elseif (empty($extra)) {
-            $extra = "&nbsp;";
-        }
-
-        if (isset($temp_filenames['diff']) && file_exists($temp_filenames['diff'])) {
-            $url = str_replace($temp_target, $temp_urlbase, $temp_filenames['diff']);
-            $diff = "<a href='$url'>diff</a>";
-        } else {
-            $diff = "&nbsp;";
-        }
-
-        if (isset($temp_filenames['mem']) && file_exists($temp_filenames['mem'])) {
-            $url = str_replace($temp_target, $temp_urlbase, $temp_filenames['mem']);
-            $mem = "<a href='$url'>leaks</a>";
-        } else {
-            $mem = "&nbsp;";
-        }
-
-        fwrite(
-            $html_file,
-            "<tr>" .
-                "<td>$result</td>" .
-                "<td>$tested</td>" .
-                "<td>$extra</td>" .
-                "<td>$diff</td>" .
-                "<td>$mem</td>" .
-                "</tr>\n"
-        );
-    }
 }
 
-function junit_init()
+function junit_init(): void
 {
     // Check whether a junit log is wanted.
     global $workerID;
@@ -3348,7 +3444,7 @@ function junit_init()
     } elseif (!$fp = fopen($JUNIT, 'w')) {
         error("Failed to open $JUNIT for writing.");
     }
-    $GLOBALS['JUNIT'] = array(
+    $GLOBALS['JUNIT'] = [
         'fp' => $fp,
         'name' => 'PHP',
         'test_total' => 0,
@@ -3358,12 +3454,12 @@ function junit_init()
         'test_skip' => 0,
         'test_warn' => 0,
         'execution_time' => 0,
-        'suites' => array(),
-        'files' => array()
-    );
+        'suites' => [],
+        'files' => []
+    ];
 }
 
-function junit_save_xml()
+function junit_save_xml(): void
 {
     global $JUNIT;
     if (!junit_enabled()) {
@@ -3385,7 +3481,7 @@ function junit_save_xml()
     fwrite($JUNIT['fp'], $xml);
 }
 
-function junit_get_suite_xml($suite_name = '')
+function junit_get_suite_xml(string $suite_name = ''): string
 {
     global $JUNIT;
 
@@ -3414,7 +3510,7 @@ function junit_get_suite_xml($suite_name = '')
     return $result;
 }
 
-function junit_enabled()
+function junit_enabled(): bool
 {
     global $JUNIT;
     return !empty($JUNIT);
@@ -3422,16 +3518,15 @@ function junit_enabled()
 
 /**
  * @param array|string $type
- * @param string $file_name
- * @param string $test_name
- * @param int|string $time
- * @param string $message
- * @param string $details
- *
- * @return void
  */
-function junit_mark_test_as($type, $file_name, $test_name, $time = null, $message = '', $details = '')
-{
+function junit_mark_test_as(
+    $type,
+    string $file_name,
+    string $test_name,
+    ?int $time = null,
+    string $message = '',
+    string $details = ''
+): void {
     global $JUNIT;
     if (!junit_enabled()) {
         return;
@@ -3445,7 +3540,7 @@ function junit_mark_test_as($type, $file_name, $test_name, $time = null, $messag
     junit_suite_record($suite, 'execution_time', $time);
 
     $escaped_details = htmlspecialchars($details, ENT_QUOTES, 'UTF-8');
-    $escaped_details = preg_replace_callback('/[\0-\x08\x0B\x0C\x0E-\x1F]/', function ($c) {
+    $escaped_details = preg_replace_callback('/[\0-\x08\x0B\x0C\x0E-\x1F]/', function (array $c): string {
         return sprintf('[[0x%02x]]', ord($c[0]));
     }, $escaped_details);
     $escaped_message = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
@@ -3455,7 +3550,7 @@ function junit_mark_test_as($type, $file_name, $test_name, $time = null, $messag
 
     if (is_array($type)) {
         $output_type = $type[0] . 'ED';
-        $temp = array_intersect(array('XFAIL', 'XLEAK', 'FAIL', 'WARN'), $type);
+        $temp = array_intersect(['XFAIL', 'XLEAK', 'FAIL', 'WARN'], $type);
         $type = reset($temp);
     } else {
         $output_type = $type . 'ED';
@@ -3483,7 +3578,7 @@ function junit_mark_test_as($type, $file_name, $test_name, $time = null, $messag
     $JUNIT['files'][$file_name]['xml'] .= "</testcase>\n";
 }
 
-function junit_suite_record($suite, $param, $value = 1)
+function junit_suite_record(string $suite, string $param, int $value = 1): void
 {
     global $JUNIT;
 
@@ -3491,7 +3586,7 @@ function junit_suite_record($suite, $param, $value = 1)
     $JUNIT['suites'][$suite][$param] += $value;
 }
 
-function junit_get_timer($file_name)
+function junit_get_timer(string $file_name): int
 {
     global $JUNIT;
     if (!junit_enabled()) {
@@ -3505,7 +3600,7 @@ function junit_get_timer($file_name)
     return 0;
 }
 
-function junit_start_timer($file_name)
+function junit_start_timer(string $file_name): void
 {
     global $JUNIT;
     if (!junit_enabled()) {
@@ -3521,12 +3616,12 @@ function junit_start_timer($file_name)
     }
 }
 
-function junit_get_suitename_for($file_name)
+function junit_get_suitename_for(string $file_name): string
 {
     return junit_path_to_classname(dirname($file_name));
 }
 
-function junit_path_to_classname($file_name)
+function junit_path_to_classname(string $file_name): string
 {
     global $JUNIT;
 
@@ -3535,7 +3630,7 @@ function junit_path_to_classname($file_name)
     }
 
     $ret = $JUNIT['name'];
-    $_tmp = array();
+    $_tmp = [];
 
     // lookup whether we're in the PHP source checkout
     $max = 5;
@@ -3559,10 +3654,10 @@ function junit_path_to_classname($file_name)
         return $ret;
     }
 
-    return $JUNIT['name'] . '.' . str_replace(array(DIRECTORY_SEPARATOR, '-'), '.', $file_name);
+    return $JUNIT['name'] . '.' . str_replace([DIRECTORY_SEPARATOR, '-'], '.', $file_name);
 }
 
-function junit_init_suite($suite_name)
+function junit_init_suite(string $suite_name): void
 {
     global $JUNIT;
     if (!junit_enabled()) {
@@ -3573,7 +3668,7 @@ function junit_init_suite($suite_name)
         return;
     }
 
-    $JUNIT['suites'][$suite_name] = array(
+    $JUNIT['suites'][$suite_name] = [
         'name' => $suite_name,
         'test_total' => 0,
         'test_pass' => 0,
@@ -3581,12 +3676,12 @@ function junit_init_suite($suite_name)
         'test_error' => 0,
         'test_skip' => 0,
         'test_warn' => 0,
-        'files' => array(),
+        'files' => [],
         'execution_time' => 0,
-    );
+    ];
 }
 
-function junit_finish_timer($file_name)
+function junit_finish_timer(string $file_name): void
 {
     global $JUNIT;
     if (!junit_enabled()) {
@@ -3606,7 +3701,7 @@ function junit_finish_timer($file_name)
     unset($JUNIT['files'][$file_name]['start']);
 }
 
-function junit_merge_results($junit)
+function junit_merge_results(array $junit): void
 {
     global $JUNIT;
     $JUNIT['test_total'] += $junit['test_total'];
@@ -3643,12 +3738,12 @@ class RuntestsValgrind
     protected $version_3_8_0 = false;
     protected $tool = null;
 
-    public function getVersion()
+    public function getVersion(): string
     {
         return $this->version;
     }
 
-    public function getHeader()
+    public function getHeader(): string
     {
         return $this->header;
     }
@@ -3673,7 +3768,7 @@ class RuntestsValgrind
         $this->version_3_8_0 = version_compare($version, '3.8.0', '>=');
     }
 
-    public function wrapCommand($cmd, $memcheck_filename, $check_all)
+    public function wrapCommand(string $cmd, string $memcheck_filename, bool $check_all): string
     {
         $vcmd = "valgrind -q --tool={$this->tool} --trace-children=yes";
         if ($check_all) {
@@ -3692,7 +3787,7 @@ class RuntestsValgrind
     }
 }
 
-function init_output_buffers()
+function init_output_buffers(): void
 {
     // Delete as much output buffers as possible.
     while (@ob_end_clean()) {
@@ -3703,7 +3798,7 @@ function init_output_buffers()
     }
 }
 
-function check_proc_open_function_exists()
+function check_proc_open_function_exists(): void
 {
     if (!function_exists('proc_open')) {
         echo <<<NO_PROC_OPEN_ERROR

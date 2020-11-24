@@ -21,9 +21,8 @@
 #include "php.h"
 #include "Zend/zend_exceptions.h"
 #include "Zend/zend_interfaces.h"
-#include "php_curl.h"
+#include "curl_private.h"
 #include "curl_file_arginfo.h"
-#ifdef HAVE_CURL
 
 PHP_CURL_API zend_class_entry *curl_CURLFile_class;
 
@@ -35,23 +34,22 @@ static void curlfile_ctor(INTERNAL_FUNCTION_PARAMETERS)
 	ZEND_PARSE_PARAMETERS_START(1,3)
 		Z_PARAM_PATH_STR(fname)
 		Z_PARAM_OPTIONAL
-		Z_PARAM_STR(mime)
-		Z_PARAM_STR(postname)
+		Z_PARAM_STR_OR_NULL(mime)
+		Z_PARAM_STR_OR_NULL(postname)
 	ZEND_PARSE_PARAMETERS_END();
 
-	zend_update_property_string(curl_CURLFile_class, cf, "name", sizeof("name")-1, ZSTR_VAL(fname));
+	zend_update_property_string(curl_CURLFile_class, Z_OBJ_P(cf), "name", sizeof("name")-1, ZSTR_VAL(fname));
 
 	if (mime) {
-		zend_update_property_string(curl_CURLFile_class, cf, "mime", sizeof("mime")-1, ZSTR_VAL(mime));
+		zend_update_property_string(curl_CURLFile_class, Z_OBJ_P(cf), "mime", sizeof("mime")-1, ZSTR_VAL(mime));
 	}
 
 	if (postname) {
-		zend_update_property_string(curl_CURLFile_class, cf, "postname", sizeof("postname")-1, ZSTR_VAL(postname));
+		zend_update_property_string(curl_CURLFile_class, Z_OBJ_P(cf), "postname", sizeof("postname")-1, ZSTR_VAL(postname));
 	}
 }
 
-/* {{{ proto CURLFile::__construct(string $name, [string $mimetype [, string $postfilename]])
-   Create the CURLFile object */
+/* {{{ Create the CURLFile object */
 ZEND_METHOD(CURLFile, __construct)
 {
 	return_value = ZEND_THIS;
@@ -59,8 +57,7 @@ ZEND_METHOD(CURLFile, __construct)
 }
 /* }}} */
 
-/* {{{ proto CURLFile curl_file_create(string $name, [string $mimetype [, string $postfilename]])
-   Create the CURLFile object */
+/* {{{ Create the CURLFile object */
 PHP_FUNCTION(curl_file_create)
 {
     object_init_ex( return_value, curl_CURLFile_class );
@@ -73,7 +70,7 @@ static void curlfile_get_property(char *name, size_t name_len, INTERNAL_FUNCTION
 	zval *res, rv;
 
 	ZEND_PARSE_PARAMETERS_NONE();
-	res = zend_read_property(curl_CURLFile_class, ZEND_THIS, name, name_len, 1, &rv);
+	res = zend_read_property(curl_CURLFile_class, Z_OBJ_P(ZEND_THIS), name, name_len, 1, &rv);
 	ZVAL_COPY_DEREF(return_value, res);
 }
 
@@ -85,43 +82,38 @@ static void curlfile_set_property(char *name, size_t name_len, INTERNAL_FUNCTION
 		Z_PARAM_STR(arg)
 	ZEND_PARSE_PARAMETERS_END();
 
-	zend_update_property_string(curl_CURLFile_class, ZEND_THIS, name, name_len, ZSTR_VAL(arg));
+	zend_update_property_string(curl_CURLFile_class, Z_OBJ_P(ZEND_THIS), name, name_len, ZSTR_VAL(arg));
 }
 
-/* {{{ proto string CURLFile::getFilename()
-   Get file name */
+/* {{{ Get file name */
 ZEND_METHOD(CURLFile, getFilename)
 {
 	curlfile_get_property("name", sizeof("name")-1, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 /* }}} */
 
-/* {{{ proto string CURLFile::getMimeType()
-   Get MIME type */
+/* {{{ Get MIME type */
 ZEND_METHOD(CURLFile, getMimeType)
 {
 	curlfile_get_property("mime", sizeof("mime")-1, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 /* }}} */
 
-/* {{{ proto string CURLFile::getPostFilename()
-   Get file name for POST */
+/* {{{ Get file name for POST */
 ZEND_METHOD(CURLFile, getPostFilename)
 {
 	curlfile_get_property("postname", sizeof("postname")-1, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 /* }}} */
 
-/* {{{ proto void CURLFile::setMimeType(string $mime)
-   Set MIME type */
+/* {{{ Set MIME type */
 ZEND_METHOD(CURLFile, setMimeType)
 {
 	curlfile_set_property("mime", sizeof("mime")-1, INTERNAL_FUNCTION_PARAM_PASSTHRU);
 }
 /* }}} */
 
-/* {{{ proto void CURLFile::setPostFilename(string $name)
-   Set file name for POST */
+/* {{{ Set file name for POST */
 ZEND_METHOD(CURLFile, setPostFilename)
 {
 	curlfile_set_property("postname", sizeof("postname")-1, INTERNAL_FUNCTION_PARAM_PASSTHRU);
@@ -139,5 +131,3 @@ void curlfile_register_class(void)
 	zend_declare_property_string(curl_CURLFile_class, "mime", sizeof("mime")-1, "", ZEND_ACC_PUBLIC);
 	zend_declare_property_string(curl_CURLFile_class, "postname", sizeof("postname")-1, "", ZEND_ACC_PUBLIC);
 }
-
-#endif

@@ -7,41 +7,41 @@ class IntlCalendar
     private function __construct() {}
 
     /**
-     * @param IntlTimeZone|DateTimeZone|string|null $timeZone
+     * @param IntlTimeZone|DateTimeZone|string|null $timezone
      * @return IntlCalendar|IntlGregorianCalendar|null
      * @alias intlcal_create_instance
      */
-    public static function createInstance($timeZone = null, ?string $locale = null) {}
+    public static function createInstance($timezone = null, ?string $locale = null) {}
 
     /**
      * @return bool
      * @alias intlcal_equals
      */
-    public function equals(IntlCalendar $calendar) {}
+    public function equals(IntlCalendar $other) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_field_difference
      */
-    public function fieldDifference(float $when, int $field) {}
+    public function fieldDifference(float $timestamp, int $field) {}
 
     /**
      * @return bool
      * @alias intlcal_add
      */
-    public function add(int $field, int $amount) {}
+    public function add(int $field, int $value) {}
 
     /**
      * @return bool
      * @alias intlcal_after
      */
-    public function after(IntlCalendar $calendar) {}
+    public function after(IntlCalendar $other) {}
 
     /**
      * @return bool
      * @alias intlcal_before
      */
-    public function before(IntlCalendar $calendar) {}
+    public function before(IntlCalendar $other) {}
 
     /**
      * @return bool
@@ -50,26 +50,25 @@ class IntlCalendar
     public function clear(?int $field = null) {}
 
     /**
-     * @param DateTime|string $dateTime
      * @return IntlCalendar|null
      * @alias intlcal_from_date_time
      */
-    public static function fromDateTime($dateTime, ?string $locale = null) {}
+    public static function fromDateTime(DateTime|string $datetime, ?string $locale = null) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get
      */
     public function get(int $field) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_actual_maximum
      */
     public function getActualMaximum(int $field) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_actual_minimum
      */
     public function getActualMinimum(int $field) {}
@@ -81,7 +80,7 @@ class IntlCalendar
     public static function getAvailableLocales() {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_day_of_week_type
      */
     public function getDayOfWeekType(int $dayOfWeek) {}
@@ -99,13 +98,13 @@ class IntlCalendar
     public function getErrorMessage() {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_first_day_of_week
      */
     public function getFirstDayOfWeek() {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_greatest_minimum
      */
     public function getGreatestMinimum(int $field) {}
@@ -114,28 +113,28 @@ class IntlCalendar
      * @return IntlIterator|false
      * @alias intlcal_get_keyword_values_for_locale
      */
-    public static function getKeywordValuesForLocale(string $key, string $locale, bool $commonlyUsed) {}
+    public static function getKeywordValuesForLocale(string $keyword, string $locale, bool $onlyCommon) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_least_maximum
      */
     public function getLeastMaximum(int $field) {}
 
     /**
-     * @return string|false
+     * @return string
      * @alias intlcal_get_locale
      */
-    public function getLocale(int $localeType) {}
+    public function getLocale(int $type) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_maximum
      */
     public function getMaximum(int $field) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_minimal_days_in_first_week
      */
     public function getMinimalDaysInFirstWeek() {}
@@ -144,10 +143,10 @@ class IntlCalendar
      * @return bool
      * @alias intlcal_set_minimal_days_in_first_week
      */
-    public function setMinimalDaysInFirstWeek(int $numberOfDays) {}
+    public function setMinimalDaysInFirstWeek(int $days) {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_minimum
      */
     public function getMinimum(int $field) {}
@@ -171,7 +170,7 @@ class IntlCalendar
     public function getSkippedWallTimeOption() {}
 
     /**
-     * @return float|false
+     * @return float
      * @alias intlcal_get_time
      */
     public function getTime() {}
@@ -189,7 +188,7 @@ class IntlCalendar
     public function getType() {}
 
     /**
-     * @return int|false
+     * @return int
      * @alias intlcal_get_weekend_transition
      */
     public function getWeekendTransition(int $dayOfWeek) {}
@@ -204,7 +203,7 @@ class IntlCalendar
      * @return bool
      * @alias intlcal_is_equivalent_to
      */
-    public function isEquivalentTo(IntlCalendar $calendar) {}
+    public function isEquivalentTo(IntlCalendar $other) {}
 
     /**
      * @return bool
@@ -216,14 +215,14 @@ class IntlCalendar
      * @return bool
      * @alias intlcal_is_weekend
      */
-    public function isWeekend(?float $date = null) {}
+    public function isWeekend(?float $timestamp = null) {}
 
     /**
-     * @param int|bool $amountOrUpOrDown
+     * @param int|bool $value
      * @return bool
      * @alias intlcal_roll
      */
-    public function roll(int $field, $amountOrUpOrDown) {}
+    public function roll(int $field, $value) {}
 
     /**
      * @return bool
@@ -235,7 +234,7 @@ class IntlCalendar
      * @return bool
      * @alias intlcal_set
      */
-    public function set(int $year, int $month, int $dayOfMonth = UNKNOWN, $hour = UNKNOWN, int $minute = UNKNOWN, int $second = UNKNOWN) {}
+    public function set(int $year, int $month, int $dayOfMonth = UNKNOWN, int $hour = UNKNOWN, int $minute = UNKNOWN, int $second = UNKNOWN) {}
 
     /**
      * @return bool
@@ -247,32 +246,32 @@ class IntlCalendar
      * @return bool
      * @alias intlcal_set_lenient
      */
-    public function setLenient(bool $isLenient) {}
+    public function setLenient(bool $lenient) {}
 
     /**
      * @return bool
      * @alias intlcal_set_repeated_wall_time_option
      */
-    public function setRepeatedWallTimeOption(int $wallTimeOption) {}
+    public function setRepeatedWallTimeOption(int $option) {}
 
     /**
      * @return bool
      * @alias intlcal_set_skipped_wall_time_option
      */
-    public function setSkippedWallTimeOption(int $wallTimeOption) {}
+    public function setSkippedWallTimeOption(int $option) {}
 
     /**
      * @return bool
      * @alias intlcal_set_time
      */
-    public function setTime(float $date) {}
+    public function setTime(float $timestamp) {}
 
     /**
-     * @param IntlTimeZone|DateTimeZone|string|null $timeZone
+     * @param IntlTimeZone|DateTimeZone|string|null $timezone
      * @return bool
      * @alias intlcal_set_time_zone
      */
-    public function setTimeZone($timeZone) {}
+    public function setTimeZone($timezone) {}
 
     /**
      * @return DateTime|false
@@ -283,16 +282,24 @@ class IntlCalendar
 
 class IntlGregorianCalendar extends IntlCalendar
 {
-    public function __construct() {}
+    /**
+     * @param DateTimeZone|IntlTimeZone|string|int|null $timezoneOrYear
+     * @param string|int|null $localeOrMonth
+     * @param int $day
+     * @param int $hour
+     * @param int $minute
+     * @param int $second
+     */
+    public function __construct($timezoneOrYear = UNKNOWN, $localeOrMonth = UNKNOWN, $day = UNKNOWN, $hour = UNKNOWN, $minute = UNKNOWN, $second = UNKNOWN) {}
 
     /**
      * @return bool
      * @alias intlgregcal_set_gregorian_change
      */
-    public function setGregorianChange(float $change) {}
+    public function setGregorianChange(float $timestamp) {}
 
     /**
-     * @return float|false
+     * @return float
      * @alias intlgregcal_get_gregorian_change
      */
     public function getGregorianChange() {}

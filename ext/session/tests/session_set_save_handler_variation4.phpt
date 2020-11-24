@@ -14,12 +14,6 @@ session.save_handler=files
 
 ob_start();
 
-/*
- * Prototype : bool session_set_save_handler(callback $open, callback $close, callback $read, callback $write, callback $destroy, callback $gc)
- * Description : Sets user-level session storage functions
- * Source code : ext/session/session.c
- */
-
 echo "*** Testing session_set_save_handler() : variation ***\n";
 
 function noisy_gc($maxlifetime) {
@@ -29,7 +23,8 @@ function noisy_gc($maxlifetime) {
 }
 
 require_once "save_handler.inc";
-$path = __DIR__;
+$path = __DIR__ . '/session_set_save_handler_variation4';
+@mkdir($path);
 session_save_path($path);
 session_set_save_handler("open", "close", "read", "write", "destroy", "noisy_gc");
 
@@ -48,13 +43,14 @@ var_dump($_SESSION);
 var_dump(session_destroy());
 
 ob_end_flush();
+rmdir($path);
 ?>
 --EXPECTF--
 *** Testing session_set_save_handler() : variation ***
 Open [%s,PHPSESSID]
 Read [%s,%s]
 GC [0]
-2 deleted
+1 deleted
 array(3) {
   ["Blah"]=>
   string(12) "Hello World!"

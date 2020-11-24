@@ -55,6 +55,8 @@ typedef enum {
   FAILURE = -1,		/* this MUST stay a negative number, or it may affect functions! */
 } ZEND_RESULT_CODE;
 
+typedef ZEND_RESULT_CODE zend_result;
+
 #ifdef ZEND_ENABLE_ZVAL_LONG64
 # ifdef ZEND_WIN32
 #  define ZEND_SIZE_MAX  _UI64_MAX
@@ -610,6 +612,7 @@ static zend_always_inline zend_uchar zval_get_type(const zval* pz) {
 #define GC_DELREF(p)				zend_gc_delref(&(p)->gc)
 #define GC_ADDREF_EX(p, rc)			zend_gc_addref_ex(&(p)->gc, rc)
 #define GC_DELREF_EX(p, rc)			zend_gc_delref_ex(&(p)->gc, rc)
+#define GC_TRY_ADDREF(p)			zend_gc_try_addref(&(p)->gc)
 
 #define GC_TYPE_MASK				0x0000000f
 #define GC_FLAGS_MASK				0x000003f0
@@ -653,14 +656,19 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 #define Z_GC_TYPE_INFO_P(zval_p)	Z_GC_TYPE_INFO(*(zval_p))
 
 /* zval_gc_flags(zval.value->gc.u.type_info) (common flags) */
-#define GC_COLLECTABLE				(1<<4)
+#define GC_NOT_COLLECTABLE			(1<<4)
 #define GC_PROTECTED                (1<<5) /* used for recursion detection */
 #define GC_IMMUTABLE                (1<<6) /* can't be changed in place */
 #define GC_PERSISTENT               (1<<7) /* allocated using malloc */
 #define GC_PERSISTENT_LOCAL         (1<<8) /* persistent, but thread-local */
 
-#define GC_ARRAY					(IS_ARRAY          | (GC_COLLECTABLE << GC_FLAGS_SHIFT))
-#define GC_OBJECT					(IS_OBJECT         | (GC_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_NULL						(IS_NULL         | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_STRING					(IS_STRING       | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_ARRAY					IS_ARRAY
+#define GC_OBJECT					IS_OBJECT
+#define GC_RESOURCE					(IS_RESOURCE     | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_REFERENCE				(IS_REFERENCE    | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
+#define GC_CONSTANT_AST				(IS_CONSTANT_AST | (GC_NOT_COLLECTABLE << GC_FLAGS_SHIFT))
 
 /* zval.u1.v.type_flags */
 #define IS_TYPE_REFCOUNTED			(1<<0)
@@ -963,6 +971,14 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		Z_TYPE_INFO_P(__z) = IS_OBJECT_EX;		\
 	} while (0)
 
+#define ZVAL_OBJ_COPY(z, o) do {				\
+		zval *__z = (z);						\
+		zend_object *__o = (o);					\
+		GC_ADDREF(__o);							\
+		Z_OBJ_P(__z) = __o;						\
+		Z_TYPE_INFO_P(__z) = IS_OBJECT_EX;		\
+	} while (0)
+
 #define ZVAL_RES(z, r) do {						\
 		zval *__z = (z);						\
 		Z_RES_P(__z) = (r);						\
@@ -974,7 +990,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		(zend_resource *) emalloc(sizeof(zend_resource));		\
 		zval *__z;												\
 		GC_SET_REFCOUNT(_res, 1);								\
-		GC_TYPE_INFO(_res) = IS_RESOURCE;						\
+		GC_TYPE_INFO(_res) = GC_RESOURCE;						\
 		_res->handle = (h);										\
 		_res->type = (t);										\
 		_res->ptr = (p);										\
@@ -988,7 +1004,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		(zend_resource *) malloc(sizeof(zend_resource));		\
 		zval *__z;												\
 		GC_SET_REFCOUNT(_res, 1);								\
-		GC_TYPE_INFO(_res) = IS_RESOURCE |						\
+		GC_TYPE_INFO(_res) = GC_RESOURCE |						\
 			(GC_PERSISTENT << GC_FLAGS_SHIFT);					\
 		_res->handle = (h);										\
 		_res->type = (t);										\
@@ -1008,7 +1024,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		zend_reference *_ref =									\
 		(zend_reference *) emalloc(sizeof(zend_reference));		\
 		GC_SET_REFCOUNT(_ref, 1);								\
-		GC_TYPE_INFO(_ref) = IS_REFERENCE;						\
+		GC_TYPE_INFO(_ref) = GC_REFERENCE;						\
 		_ref->sources.ptr = NULL;									\
 		Z_REF_P(z) = _ref;										\
 		Z_TYPE_INFO_P(z) = IS_REFERENCE_EX;						\
@@ -1018,7 +1034,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		zend_reference *_ref =									\
 		(zend_reference *) emalloc(sizeof(zend_reference));		\
 		GC_SET_REFCOUNT(_ref, 1);								\
-		GC_TYPE_INFO(_ref) = IS_REFERENCE;						\
+		GC_TYPE_INFO(_ref) = GC_REFERENCE;						\
 		ZVAL_COPY_VALUE(&_ref->val, r);							\
 		_ref->sources.ptr = NULL;									\
 		Z_REF_P(z) = _ref;										\
@@ -1030,7 +1046,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		zend_reference *_ref =									\
 			(zend_reference *) emalloc(sizeof(zend_reference));	\
 		GC_SET_REFCOUNT(_ref, (refcount));						\
-		GC_TYPE_INFO(_ref) = IS_REFERENCE;						\
+		GC_TYPE_INFO(_ref) = GC_REFERENCE;						\
 		ZVAL_COPY_VALUE(&_ref->val, _z);						\
 		_ref->sources.ptr = NULL;									\
 		Z_REF_P(_z) = _ref;										\
@@ -1041,7 +1057,7 @@ static zend_always_inline uint32_t zval_gc_info(uint32_t gc_type_info) {
 		zend_reference *_ref =									\
 		(zend_reference *) malloc(sizeof(zend_reference));		\
 		GC_SET_REFCOUNT(_ref, 1);								\
-		GC_TYPE_INFO(_ref) = IS_REFERENCE |						\
+		GC_TYPE_INFO(_ref) = GC_REFERENCE |						\
 			(GC_PERSISTENT << GC_FLAGS_SHIFT);					\
 		ZVAL_COPY_VALUE(&_ref->val, r);							\
 		_ref->sources.ptr = NULL;									\
@@ -1143,6 +1159,13 @@ static zend_always_inline uint32_t zend_gc_set_refcount(zend_refcounted_h *p, ui
 static zend_always_inline uint32_t zend_gc_addref(zend_refcounted_h *p) {
 	ZEND_RC_MOD_CHECK(p);
 	return ++(p->refcount);
+}
+
+static zend_always_inline void zend_gc_try_addref(zend_refcounted_h *p) {
+	if (!(p->u.type_info & GC_IMMUTABLE)) {
+		ZEND_RC_MOD_CHECK(p);
+		++p->refcount;
+	}
 }
 
 static zend_always_inline uint32_t zend_gc_delref(zend_refcounted_h *p) {

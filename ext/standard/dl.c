@@ -38,8 +38,7 @@
 #endif
 #endif /* defined(HAVE_LIBDL) */
 
-/* {{{ proto bool dl(string extension_filename)
-   Load a PHP extension at runtime */
+/* {{{ Load a PHP extension at runtime */
 PHPAPI PHP_FUNCTION(dl)
 {
 	char *filename;
@@ -55,7 +54,7 @@ PHPAPI PHP_FUNCTION(dl)
 	}
 
 	if (filename_len >= MAXPATHLEN) {
-		php_error_docref(NULL, E_WARNING, "File name exceeds the maximum allowed length of %d characters", MAXPATHLEN);
+		php_error_docref(NULL, E_WARNING, "Filename exceeds the maximum allowed length of %d characters", MAXPATHLEN);
 		RETURN_FALSE;
 	}
 
@@ -68,8 +67,7 @@ PHPAPI PHP_FUNCTION(dl)
 
 #if defined(HAVE_LIBDL)
 
-/* {{{ php_load_shlib
- */
+/* {{{ php_load_shlib */
 PHPAPI void *php_load_shlib(const char *path, char **errp)
 {
 	void *handle;
@@ -96,8 +94,7 @@ PHPAPI void *php_load_shlib(const char *path, char **errp)
 }
 /* }}} */
 
-/* {{{ php_load_extension
- */
+/* {{{ php_load_extension */
 PHPAPI int php_load_extension(const char *filename, int type, int start_now)
 {
 	void *handle;
@@ -164,18 +161,16 @@ PHPAPI int php_load_extension(const char *filename, int type, int start_now)
 		efree(orig_libpath);
 		efree(err1);
 	}
+	efree(libpath);
 
 #ifdef PHP_WIN32
-	if (!php_win32_image_compatible(libpath, &err1)) {
+	if (!php_win32_image_compatible(handle, &err1)) {
 			php_error_docref(NULL, error_type, err1);
 			efree(err1);
-			efree(libpath);
 			DL_UNLOAD(handle);
 			return FAILURE;
 	}
 #endif
-
-	efree(libpath);
 
 	get_module = (zend_module_entry *(*)(void)) DL_FETCH_SYMBOL(handle, "get_module");
 
@@ -265,8 +260,7 @@ PHPAPI int php_load_extension(const char *filename, int type, int start_now)
 
 #endif
 
-/* {{{ php_dl
- */
+/* {{{ php_dl */
 PHPAPI void php_dl(const char *file, int type, zval *return_value, int start_now)
 {
     /* Load extension */

@@ -91,9 +91,11 @@
 
 #include "php_http_parser.h"
 #include "php_cli_server.h"
+#include "php_cli_server_arginfo.h"
 #include "mime_type_map.h"
 
 #include "php_cli_process_title.h"
+#include "php_cli_process_title_arginfo.h"
 
 #define OUTPUT_NOT_CHECKED -1
 #define OUTPUT_IS_TTY 1
@@ -213,7 +215,7 @@ static php_cli_server_http_response_status_code_pair template_map[] = {
 
 static int php_cli_server_log_level = 3;
 
-#if HAVE_UNISTD_H
+#if HAVE_UNISTD_H || defined(PHP_WIN32)
 static int php_cli_output_is_tty = OUTPUT_NOT_CHECKED;
 #endif
 
@@ -370,7 +372,13 @@ static void append_essential_headers(smart_str* buffer, php_cli_server_client *c
 
 static const char *get_mime_type(const php_cli_server *server, const char *ext, size_t ext_len) /* {{{ */
 {
-	return (const char*)zend_hash_str_find_ptr(&server->extension_mime_types, ext, ext_len);
+	char *ret;
+	ALLOCA_FLAG(use_heap)
+	char *ext_lower = do_alloca(ext_len + 1, use_heap);
+	zend_str_tolower_copy(ext_lower, ext, ext_len);
+	ret = zend_hash_str_find_ptr(&server->extension_mime_types, ext_lower, ext_len);
+	free_alloca(ext_lower, use_heap);
+	return (const char*)ret;
 } /* }}} */
 
 PHP_FUNCTION(apache_request_headers) /* {{{ */
@@ -436,8 +444,7 @@ PHP_FUNCTION(apache_response_headers) /* {{{ */
 }
 /* }}} */
 
-/* {{{ cli_server module
- */
+/* {{{ cli_server module */
 
 static void cli_server_init_globals(zend_cli_server_globals *cg)
 {
@@ -480,15 +487,12 @@ zend_module_entry cli_server_module_entry = {
 };
 /* }}} */
 
-ZEND_BEGIN_ARG_INFO(arginfo_no_args, 0)
-ZEND_END_ARG_INFO()
-
 const zend_function_entry server_additional_functions[] = {
-	PHP_FE(cli_set_process_title,        arginfo_cli_set_process_title)
-	PHP_FE(cli_get_process_title,        arginfo_cli_get_process_title)
-	PHP_FE(apache_request_headers, arginfo_no_args)
-	PHP_FE(apache_response_headers, arginfo_no_args)
-	PHP_FALIAS(getallheaders, apache_request_headers, arginfo_no_args)
+	PHP_FE(cli_set_process_title,	arginfo_cli_set_process_title)
+	PHP_FE(cli_get_process_title,	arginfo_cli_get_process_title)
+	PHP_FE(apache_request_headers,	arginfo_apache_request_headers)
+	PHP_FE(apache_response_headers,	arginfo_apache_response_headers)
+	PHP_FALIAS(getallheaders, apache_request_headers, arginfo_getallheaders)
 	PHP_FE_END
 };
 
@@ -782,8 +786,7 @@ static void sapi_cli_server_log_message(const char *msg, int syslog_type_int) /*
 	sapi_cli_server_log_write(PHP_CLI_SERVER_LOG_MESSAGE, msg);
 } /* }}} */
 
-/* {{{ sapi_module_struct cli_server_sapi_module
- */
+/* {{{ sapi_module_struct cli_server_sapi_module */
 sapi_module_struct cli_server_sapi_module = {
 	"cli-server",							/* name */
 	"Built-in HTTP server",		/* pretty name */
@@ -1157,6 +1160,14 @@ static int php_cli_is_output_tty() /* {{{ */
 	}
 	return php_cli_output_is_tty;
 } /* }}} */
+#elif defined(PHP_WIN32)
+static int php_cli_is_output_tty() /* {{{ */
+{
+	if (php_cli_output_is_tty == OUTPUT_NOT_CHECKED) {
+		php_cli_output_is_tty = php_win32_console_fileno_is_console(STDOUT_FILENO) && php_win32_console_fileno_has_vt100(STDOUT_FILENO);
+	}
+	return php_cli_output_is_tty;
+} /* }}} */
 #endif
 
 static void php_cli_server_log_response(php_cli_server_client *client, int status, const char *message) /* {{{ */
@@ -1166,23 +1177,17 @@ static void php_cli_server_log_response(php_cli_server_client *client, int statu
 	zend_bool append_error_message = 0;
 
 	if (PG(last_error_message)) {
-		switch (PG(last_error_type)) {
-			case E_ERROR:
-			case E_CORE_ERROR:
-			case E_COMPILE_ERROR:
-			case E_USER_ERROR:
-			case E_PARSE:
-				if (status == 200) {
-					/* the status code isn't changed by a fatal error, so fake it */
-					effective_status = 500;
-				}
+		if (PG(last_error_type) & E_FATAL_ERRORS) {
+			if (status == 200) {
+				/* the status code isn't changed by a fatal error, so fake it */
+				effective_status = 500;
+			}
 
-				append_error_message = 1;
-				break;
+			append_error_message = 1;
 		}
 	}
 
-#if HAVE_UNISTD_H
+#if HAVE_UNISTD_H || defined(PHP_WIN32)
 	if (CLI_SERVER_G(color) && php_cli_is_output_tty() == OUTPUT_IS_TTY) {
 		if (effective_status >= 500) {
 			/* server error: red */
@@ -1874,12 +1879,8 @@ static size_t php_cli_server_client_send_through(php_cli_server_client *client, 
 				int nfds = php_pollfd_for(client->sock, POLLOUT, &tv);
 				if (nfds > 0) {
 					continue;
-				} else if (nfds < 0) {
-					/* error */
-					php_handle_aborted_connection();
-					return nbytes_left;
 				} else {
-					/* timeout */
+					/* error or timeout */
 					php_handle_aborted_connection();
 					return nbytes_left;
 				}
@@ -2219,9 +2220,12 @@ static int php_cli_server_dispatch_router(php_cli_server *server, php_cli_server
 static int php_cli_server_dispatch(php_cli_server *server, php_cli_server_client *client) /* {{{ */
 {
 	int is_static_file  = 0;
+	const char *ext = client->request.ext;
 
 	SG(server_context) = client;
-	if (client->request.ext_len != 3 || memcmp(client->request.ext, "php", 3) || !client->request.path_translated) {
+	if (client->request.ext_len != 3
+	 || (ext[0] != 'p' && ext[0] != 'P') || (ext[1] != 'h' && ext[1] != 'H') || (ext[2] != 'p' && ext[2] != 'P')
+	 || !client->request.path_translated) {
 		is_static_file = 1;
 	}
 
@@ -2345,6 +2349,65 @@ static void php_cli_server_client_dtor_wrapper(zval *zv) /* {{{ */
 	pefree(p, 1);
 } /* }}} */
 
+/**
+ * Parse the host and port portions of an address specifier in
+ * one of the following forms:
+ * - hostOrIP:port
+ * - [hostOrIP]:port
+ */
+static char *php_cli_server_parse_addr(const char *addr, int *pport) {
+	const char *p, *end;
+	long port;
+
+	if (addr[0] == '[') {
+		/* Encapsulated [hostOrIP]:port */
+		const char *start = addr + 1;
+		end = strchr(start, ']');
+		if (!end) {
+			/* No ending ] delimiter to match [ */
+			return NULL;
+		}
+
+		p = end + 1;
+		if (*p != ':') {
+			/* Invalid char following address/missing port */
+			return NULL;
+		}
+
+		port = strtol(p + 1, (char**)&p, 10);
+		if (p && *p) {
+			/* Non-numeric in port */
+			return NULL;
+		}
+		if (port < 0 || port > 65535) {
+			/* Invalid port */
+			return NULL;
+		}
+
+		/* Full [hostOrIP]:port provided */
+		*pport = (int)port;
+		return pestrndup(start, end - start, 1);
+	}
+
+	end = strchr(addr, ':');
+	if (!end) {
+		/* Missing port */
+		return NULL;
+	}
+
+	port = strtol(end + 1, (char**)&p, 10);
+	if (p && *p) {
+		/* Non-numeric port */
+		return NULL;
+	}
+	if (port < 0 || port > 65535) {
+		/* Invalid port */
+		return NULL;
+	}
+	*pport = (int)port;
+	return pestrndup(addr, end - addr, 1);
+}
+
 static int php_cli_server_ctor(php_cli_server *server, const char *addr, const char *document_root, const char *router) /* {{{ */
 {
 	int retval = SUCCESS;
@@ -2355,40 +2418,9 @@ static int php_cli_server_ctor(php_cli_server *server, const char *addr, const c
 	int err = 0;
 	int port = 3000;
 	php_socket_t server_sock = SOCK_ERR;
-	char *p = NULL;
 
-	if (addr[0] == '[') {
-		host = pestrdup(addr + 1, 1);
-		if (!host) {
-			return FAILURE;
-		}
-		p = strchr(host, ']');
-		if (p) {
-			*p++ = '\0';
-			if (*p == ':') {
-				port = strtol(p + 1, &p, 10);
-				if (port <= 0 || port > 65535) {
-					p = NULL;
-				}
-			} else if (*p != '\0') {
-				p = NULL;
-			}
-		}
-	} else {
-		host = pestrdup(addr, 1);
-		if (!host) {
-			return FAILURE;
-		}
-		p = strchr(host, ':');
-		if (p) {
-			*p++ = '\0';
-			port = strtol(p, &p, 10);
-			if (port <= 0 || port > 65535) {
-				p = NULL;
-			}
-		}
-	}
-	if (!p) {
+	host = php_cli_server_parse_addr(addr, &port);
+	if (!host) {
 		fprintf(stderr, "Invalid address: %s\n", addr);
 		retval = FAILURE;
 		goto out;
@@ -2712,10 +2744,12 @@ int do_cli_server(int argc, char **argv) /* {{{ */
 	sapi_module.phpinfo_as_text = 0;
 
 	{
+		zend_bool ipv6 = strchr(server.host, ':');
 		php_cli_server_logf(
 			PHP_CLI_SERVER_LOG_PROCESS,
-			"PHP %s Development Server (http://%s) started",
-			PHP_VERSION, server_bind_address);
+			"PHP %s Development Server (http://%s%s%s:%d) started",
+			PHP_VERSION, ipv6 ? "[" : "", server.host,
+			ipv6 ? "]" : "", server.port);
 	}
 
 #if defined(SIGINT)

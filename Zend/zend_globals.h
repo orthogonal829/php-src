@@ -77,8 +77,6 @@ struct _zend_compiler_globals {
 	HashTable *function_table;	/* function symbol table */
 	HashTable *class_table;		/* class table */
 
-	HashTable filenames_table;
-
 	HashTable *auto_globals;
 
 	/* Refer to zend_yytnamerr() in zend_language_parser.y for meaning of values */
@@ -130,6 +128,8 @@ struct _zend_compiler_globals {
 	HashTable *delayed_autoloads;
 
 	uint32_t rtd_key_counter;
+
+	zend_stack short_circuiting_opnums;
 };
 
 
@@ -239,6 +239,7 @@ struct _zend_executor_globals {
 	HashTable weakrefs;
 
 	zend_bool exception_ignore_args;
+	zend_long exception_string_param_max_len;
 
 	zend_get_gc_buffer get_gc_buffer;
 

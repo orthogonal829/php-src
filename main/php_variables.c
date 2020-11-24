@@ -178,8 +178,14 @@ PHPAPI void php_register_variable_ex(const char *var_name, zval *val, zval *trac
 			} else {
 				ip = strchr(ip, ']');
 				if (!ip) {
-					/* PHP variables cannot contain '[' in their names, so we replace the character with a '_' */
+					/* not an index; un-terminate the var name */
 					*(index_s - 1) = '_';
+					/* PHP variables cannot contain ' ', '.', '[' in their names, so we replace the characters with a '_' */
+					for (p = index_s; *p; p++) {
+						if (*p == ' ' || *p == '.' || *p == '[') {
+							*p = '_';
+						}
+					}
 
 					index_len = 0;
 					if (index) {
@@ -503,7 +509,9 @@ SAPI_API SAPI_TREAT_DATA_FUNC(php_default_treat_data)
 		}
 
 		val = estrndup(val, val_len);
-		php_url_decode(var, strlen(var));
+		if (arg != PARSE_COOKIE) {
+			php_url_decode(var, strlen(var));
+		}
 		if (sapi_module.input_filter(arg, var, &val, val_len, &new_val_len)) {
 			php_register_variable_safe(var, val, new_val_len, &array);
 		}
@@ -579,8 +587,7 @@ zend_bool php_std_auto_global_callback(char *name, uint32_t name_len)
 	return 0; /* don't rearm */
 }
 
-/* {{{ php_build_argv
- */
+/* {{{ php_build_argv */
 PHPAPI void php_build_argv(const char *s, zval *track_vars_array)
 {
 	zval arr, argc, tmp;
@@ -638,8 +645,7 @@ PHPAPI void php_build_argv(const char *s, zval *track_vars_array)
 }
 /* }}} */
 
-/* {{{ php_register_server_variables
- */
+/* {{{ php_register_server_variables */
 static inline void php_register_server_variables(void)
 {
 	zval tmp;
@@ -677,8 +683,7 @@ static inline void php_register_server_variables(void)
 }
 /* }}} */
 
-/* {{{ php_autoglobal_merge
- */
+/* {{{ php_autoglobal_merge */
 static void php_autoglobal_merge(HashTable *dest, HashTable *src)
 {
 	zval *src_entry, *dest_entry;
@@ -710,8 +715,7 @@ static void php_autoglobal_merge(HashTable *dest, HashTable *src)
 }
 /* }}} */
 
-/* {{{ php_hash_environment
- */
+/* {{{ php_hash_environment */
 PHPAPI int php_hash_environment(void)
 {
 	memset(PG(http_globals), 0, sizeof(PG(http_globals)));

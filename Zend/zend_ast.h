@@ -63,6 +63,8 @@ enum _zend_ast_kind {
 	ZEND_AST_USE,
 	ZEND_AST_TYPE_UNION,
 	ZEND_AST_ATTRIBUTE_LIST,
+	ZEND_AST_ATTRIBUTE_GROUP,
+	ZEND_AST_MATCH_ARM_LIST,
 
 	/* 0 child nodes */
 	ZEND_AST_MAGIC_CONST = 0 << ZEND_AST_NUM_CHILDREN_SHIFT,
@@ -107,6 +109,7 @@ enum _zend_ast_kind {
 	/* 2 child nodes */
 	ZEND_AST_DIM = 2 << ZEND_AST_NUM_CHILDREN_SHIFT,
 	ZEND_AST_PROP,
+	ZEND_AST_NULLSAFE_PROP,
 	ZEND_AST_STATIC_PROP,
 	ZEND_AST_CALL,
 	ZEND_AST_CLASS_CONST,
@@ -141,9 +144,13 @@ enum _zend_ast_kind {
 	ZEND_AST_GROUP_USE,
 	ZEND_AST_CLASS_CONST_GROUP,
 	ZEND_AST_ATTRIBUTE,
+	ZEND_AST_MATCH,
+	ZEND_AST_MATCH_ARM,
+	ZEND_AST_NAMED_ARG,
 
 	/* 3 child nodes */
 	ZEND_AST_METHOD_CALL = 3 << ZEND_AST_NUM_CHILDREN_SHIFT,
+	ZEND_AST_NULLSAFE_METHOD_CALL,
 	ZEND_AST_STATIC_CALL,
 	ZEND_AST_CONDITIONAL,
 
@@ -284,7 +291,7 @@ ZEND_API zend_ast *zend_ast_create_decl(
 	zend_string *name, zend_ast *child0, zend_ast *child1, zend_ast *child2, zend_ast *child3, zend_ast *child4
 );
 
-ZEND_API int ZEND_FASTCALL zend_ast_evaluate(zval *result, zend_ast *ast, zend_class_entry *scope);
+ZEND_API zend_result ZEND_FASTCALL zend_ast_evaluate(zval *result, zend_ast *ast, zend_class_entry *scope);
 ZEND_API zend_string *zend_ast_export(const char *prefix, zend_ast *ast, const char *suffix);
 
 ZEND_API zend_ast_ref * ZEND_FASTCALL zend_ast_copy(zend_ast *ast);

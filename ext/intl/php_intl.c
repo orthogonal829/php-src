@@ -141,8 +141,7 @@ static PHP_GINIT_FUNCTION(intl)
 }
 /* }}} */
 
-/* {{{ PHP_MINIT_FUNCTION
- */
+/* {{{ PHP_MINIT_FUNCTION */
 PHP_MINIT_FUNCTION( intl )
 {
 	/* For the default locale php.ini setting */
@@ -242,8 +241,7 @@ PHP_MINIT_FUNCTION( intl )
 
 #define EXPLICIT_CLEANUP_ENV_VAR "INTL_EXPLICIT_CLEANUP"
 
-/* {{{ PHP_MSHUTDOWN_FUNCTION
- */
+/* {{{ PHP_MSHUTDOWN_FUNCTION */
 PHP_MSHUTDOWN_FUNCTION( intl )
 {
 	const char *cleanup;
@@ -259,21 +257,17 @@ PHP_MSHUTDOWN_FUNCTION( intl )
 }
 /* }}} */
 
-/* {{{ PHP_RINIT_FUNCTION
- */
+/* {{{ PHP_RINIT_FUNCTION */
 PHP_RINIT_FUNCTION( intl )
 {
 	return SUCCESS;
 }
 /* }}} */
 
-/* {{{ PHP_RSHUTDOWN_FUNCTION
- */
+/* {{{ PHP_RSHUTDOWN_FUNCTION */
 PHP_RSHUTDOWN_FUNCTION( intl )
 {
-	if(!Z_ISUNDEF(INTL_G(current_collator))) {
-		ZVAL_UNDEF(&INTL_G(current_collator));
-	}
+	INTL_G(current_collator) = NULL;
 	if (INTL_G(grapheme_iterator)) {
 		grapheme_close_global_iterator(  );
 		INTL_G(grapheme_iterator) = NULL;
@@ -284,8 +278,7 @@ PHP_RSHUTDOWN_FUNCTION( intl )
 }
 /* }}} */
 
-/* {{{ PHP_MINFO_FUNCTION
- */
+/* {{{ PHP_MINFO_FUNCTION */
 PHP_MINFO_FUNCTION( intl )
 {
 #ifndef UCONFIG_NO_FORMATTING

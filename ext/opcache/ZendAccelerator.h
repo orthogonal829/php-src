@@ -289,7 +289,6 @@ typedef struct _zend_accel_shared_globals {
 	zend_string_table interned_strings;
 } zend_accel_shared_globals;
 
-extern char accel_system_id[32];
 #ifdef ZEND_WIN32
 extern char accel_uname_id[32];
 #endif
@@ -316,8 +315,8 @@ extern zend_accel_globals accel_globals;
 extern char *zps_api_failure_reason;
 
 void accel_shutdown(void);
-int  accel_activate(INIT_FUNC_ARGS);
-int  accel_post_deactivate(void);
+zend_result  accel_activate(INIT_FUNC_ARGS);
+zend_result accel_post_deactivate(void);
 void zend_accel_schedule_restart(zend_accel_restart_reason reason);
 void zend_accel_schedule_restart_if_necessary(zend_accel_restart_reason reason);
 accel_time_t zend_get_file_handle_timestamp(zend_file_handle *file_handle, size_t *size);

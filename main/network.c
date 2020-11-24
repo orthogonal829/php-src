@@ -97,8 +97,7 @@ const struct in6_addr in6addr_any = {0}; /* IN6ADDR_ANY_INIT; */
 #  define PHP_GAI_STRERROR(x) (gai_strerror(x))
 #else
 #  define PHP_GAI_STRERROR(x) (php_gai_strerror(x))
-/* {{{ php_gai_strerror
- */
+/* {{{ php_gai_strerror */
 static const char *php_gai_strerror(int code)
 {
         static struct {
@@ -136,8 +135,7 @@ static const char *php_gai_strerror(int code)
 #endif
 #endif
 
-/* {{{ php_network_freeaddresses
- */
+/* {{{ php_network_freeaddresses */
 PHPAPI void php_network_freeaddresses(struct sockaddr **sal)
 {
 	struct sockaddr **sap;
@@ -199,6 +197,10 @@ PHPAPI int php_network_getaddresses(const char *host, int socktype, struct socka
 
 	if ((n = getaddrinfo(host, NULL, &hints, &res))) {
 		if (error_string) {
+			/* free error string received during previous iteration (if any) */
+			if (*error_string) {
+				zend_string_release_ex(*error_string, 0);
+			}
 			*error_string = strpprintf(0, "php_network_getaddresses: getaddrinfo failed: %s", PHP_GAI_STRERROR(n));
 			php_error_docref(NULL, E_WARNING, "%s", ZSTR_VAL(*error_string));
 		} else {
@@ -207,6 +209,10 @@ PHPAPI int php_network_getaddresses(const char *host, int socktype, struct socka
 		return 0;
 	} else if (res == NULL) {
 		if (error_string) {
+			/* free error string received during previous iteration (if any) */
+			if (*error_string) {
+				zend_string_release_ex(*error_string, 0);
+			}
 			*error_string = strpprintf(0, "php_network_getaddresses: getaddrinfo failed (null result pointer) errno=%d", errno);
 			php_error_docref(NULL, E_WARNING, "%s", ZSTR_VAL(*error_string));
 		} else {
@@ -240,6 +246,10 @@ PHPAPI int php_network_getaddresses(const char *host, int socktype, struct socka
 		}
 		if (host_info == NULL) {
 			if (error_string) {
+				/* free error string received during previous iteration (if any) */
+				if (*error_string) {
+					zend_string_release_ex(*error_string, 0);
+				}
 				*error_string = strpprintf(0, "php_network_getaddresses: gethostbyname failed. errno=%d", errno);
 				php_error_docref(NULL, E_WARNING, "%s", ZSTR_VAL(*error_string));
 			} else {

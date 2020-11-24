@@ -3,7 +3,7 @@ Test sem_acquire with nowait option
 --SKIPIF--
 <?php
 if(!extension_loaded('sysvsem') || !extension_loaded('pcntl')) {
-	die("skip sysvsem and pcntl required");
+    die("skip sysvsem and pcntl required");
 }
 ?>
 --FILE--
@@ -118,7 +118,7 @@ if ($pid) {
 }
 
 ?>
---EXPECTF--
+--EXPECT--
 P: parent process running.
 P: got semaphore.
 P: acquired semaphore.

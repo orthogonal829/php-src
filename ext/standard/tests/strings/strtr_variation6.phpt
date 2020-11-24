@@ -2,12 +2,6 @@
 Test strtr() function : usage variations - unexpected inputs for 'from' argument
 --FILE--
 <?php
-/* Prototype  : string strtr(string $str, string $from[, string $to]);
-                string strtr(string $str, array $replace_pairs);
- * Description: Translates characters in str using given translation tables
- * Source code: ext/standard/string.c
-*/
-
 /* Test strtr() function: with unexpected inputs for 'from'
  *  and expected type for 'str' & 'to' arguments
 */
@@ -125,7 +119,7 @@ string(6) "012atm"
 -- Iteration 16 --
 string(6) "012ttm"
 -- Iteration 17 --
-strtr(): Argument #2 ($from) must be of type string|array, resource given
+strtr(): Argument #2 ($from) must be of type array|string, resource given
 -- Iteration 18 --
 string(6) "012atm"
 -- Iteration 19 --

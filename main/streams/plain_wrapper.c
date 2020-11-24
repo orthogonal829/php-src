@@ -257,6 +257,11 @@ static void detect_is_seekable(php_stdio_stream_data *self) {
 
 		self->is_seekable = !(file_type == FILE_TYPE_PIPE || file_type == FILE_TYPE_CHAR);
 		self->is_pipe = file_type == FILE_TYPE_PIPE;
+
+		/* Additional check needed to distinguish between pipes and sockets. */
+		if (self->is_pipe && !GetNamedPipeInfo((HANDLE) handle, NULL, NULL, NULL, NULL)) {
+			self->is_pipe = 0;
+		}
 	}
 #endif
 }
@@ -346,7 +351,7 @@ static ssize_t php_stdiop_write(php_stream *stream, const char *buf, size_t coun
 		ssize_t bytes_written = write(data->fd, buf, count);
 #endif
 		if (bytes_written < 0) {
-			if (errno == EWOULDBLOCK || errno == EAGAIN) {
+			if (PHP_IS_TRANSIENT_ERROR(errno)) {
 				return 0;
 			}
 			if (errno == EINTR) {
@@ -392,7 +397,7 @@ static ssize_t php_stdiop_read(php_stream *stream, char *buf, size_t count)
 				if (!PeekNamedPipe(ph, NULL, 0, NULL, &avail_read, NULL)) {
 					break;
 				}
-				/* If there's nothing to read, wait in 10ms periods. */
+				/* If there's nothing to read, wait in 10us periods. */
 				if (0 == avail_read) {
 					usleep(10);
 				}
@@ -415,7 +420,7 @@ static ssize_t php_stdiop_read(php_stream *stream, char *buf, size_t count)
 		}
 
 		if (ret < 0) {
-			if (errno == EWOULDBLOCK || errno == EAGAIN) {
+			if (PHP_IS_TRANSIENT_ERROR(errno)) {
 				/* Not an error. */
 				ret = 0;
 			} else if (errno == EINTR) {
@@ -769,6 +774,7 @@ static int php_stdiop_set_option(php_stream *stream, int option, int value, void
 				php_stream_mmap_range *range = (php_stream_mmap_range*)ptrparam;
 				HANDLE hfile = (HANDLE)_get_osfhandle(fd);
 				DWORD prot, acc, loffs = 0, delta = 0;
+				LARGE_INTEGER file_size;
 
 				switch (value) {
 					case PHP_STREAM_MMAP_SUPPORTED:
@@ -805,16 +811,27 @@ static int php_stdiop_set_option(php_stream *stream, int option, int value, void
 							return PHP_STREAM_OPTION_RETURN_ERR;
 						}
 
-						size = GetFileSize(hfile, NULL);
-						if (range->length == 0 && range->offset > 0 && range->offset < size) {
-							range->length = size - range->offset;
+						if (!GetFileSizeEx(hfile, &file_size)) {
+							CloseHandle(data->file_mapping);
+							data->file_mapping = NULL;
+							return PHP_STREAM_OPTION_RETURN_ERR;
 						}
-						if (range->length == 0 || range->length > size) {
-							range->length = size;
+# if defined(_WIN64)
+						size = file_size.QuadPart;
+# else
+						if (file_size.HighPart) {
+							CloseHandle(data->file_mapping);
+							data->file_mapping = NULL;
+							return PHP_STREAM_OPTION_RETURN_ERR;
+						} else {
+							size = file_size.LowPart;
 						}
-						if (range->offset >= size) {
+# endif
+						if (range->offset > size) {
 							range->offset = size;
-							range->length = 0;
+						}
+						if (range->length == 0 || range->length > size - range->offset) {
+							range->length = size - range->offset;
 						}
 
 						/* figure out how big a chunk to map to be able to view the part that we need */
@@ -826,6 +843,11 @@ static int php_stdiop_set_option(php_stream *stream, int option, int value, void
 							gran = info.dwAllocationGranularity;
 							loffs = ((DWORD)range->offset / gran) * gran;
 							delta = (DWORD)range->offset - loffs;
+						}
+
+						/* MapViewOfFile()ing zero bytes would map to the end of the file; match *nix behavior instead */
+						if (range->length + delta == 0) {
+							return PHP_STREAM_OPTION_RETURN_ERR;
 						}
 
 						data->last_mapped_addr = MapViewOfFile(data->file_mapping, acc, 0, loffs, range->length + delta);
@@ -1029,9 +1051,7 @@ PHPAPI php_stream *_php_stream_fopen(const char *filename, const char *mode, zen
 	char *persistent_id = NULL;
 
 	if (FAILURE == php_stream_parse_fopen_modes(mode, &open_flags)) {
-		if (options & REPORT_ERRORS) {
-			zend_value_error("`%s' is not a valid mode for fopen", mode);
-		}
+		php_stream_wrapper_log_error(&php_plain_files_wrapper, options, "`%s' is not a valid mode for fopen", mode);
 		return NULL;
 	}
 

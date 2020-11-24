@@ -8,11 +8,6 @@ version_compare(MB_ONIGURUMA_VERSION, '6.1.0', '>=') or die("skip requires onigu
 ?>
 --FILE--
 <?php
-/* Prototype  : int mb_ereg(string $pattern, string $string [, array $registers])
- * Description: Regular expression match for multibyte string
- * Source code: ext/mbstring/php_mbregex.c
- */
-
 /*
  * test that mb_ereg can match correctly when passed different character classes.
  */
@@ -74,84 +69,84 @@ echo "Done";
 *** Testing mb_ereg() : variation ***
 
 -- Iteration 1 --
-int(3)
+bool(true)
 array(1) {
   [0]=>
   string(4) "YUIx"
 }
 
 -- Iteration 2 --
-int(4)
+bool(true)
 array(1) {
   [0]=>
   string(8) "YUJjRA=="
 }
 
 -- Iteration 3 --
-int(4)
+bool(true)
 array(1) {
   [0]=>
   string(8) "YWIvPQ=="
 }
 
 -- Iteration 4 --
-int(2)
+bool(true)
 array(1) {
   [0]=>
   string(4) "IAk="
 }
 
 -- Iteration 5 --
-int(3)
+bool(true)
 array(1) {
   [0]=>
   string(4) "MjM0"
 }
 
 -- Iteration 6 --
-int(9)
+bool(true)
 array(1) {
   [0]=>
   string(12) "5pel5pys6Kqe"
 }
 
 -- Iteration 7 --
-int(4)
+bool(true)
 array(1) {
   [0]=>
   string(8) "Zmpkcw=="
 }
 
 -- Iteration 8 --
-int(9)
+bool(true)
 array(1) {
   [0]=>
   string(12) "5pel5pys6Kqe"
 }
 
 -- Iteration 9 --
-int(5)
+bool(true)
 array(1) {
   [0]=>
   string(8) "LiEiKkA="
 }
 
 -- Iteration 10 --
-int(1)
+bool(true)
 array(1) {
   [0]=>
   string(4) "CQ=="
 }
 
 -- Iteration 11 --
-int(5)
+bool(true)
 array(1) {
   [0]=>
   string(8) "SURTSlY="
 }
 
 -- Iteration 12 --
-int(4)
+bool(true)
 array(1) {
   [0]=>
   string(8) "M2I1RA=="

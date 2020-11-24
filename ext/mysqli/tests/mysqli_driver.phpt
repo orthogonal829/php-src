@@ -3,7 +3,6 @@ mysqli_driver class
 --SKIPIF--
 <?php
 require_once('skipif.inc');
-require_once('skipifemb.inc');
 require_once('skipifconnectfailure.inc');
 ?>
 --FILE--
@@ -102,10 +101,6 @@ require_once('skipifconnectfailure.inc');
     $driver->reconnect = true;
     $driver->reconnect = false;
     $driver->reconnect = $reconnect;
-
-    if (!is_bool($embedded = $driver->embedded))
-        printf("[020] Expecting boolean/any, got %s/%s\n",
-            gettype($embedded), $embedded);
 
     print "done!";
 ?>

@@ -33,11 +33,8 @@
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <openssl/err.h>
-
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 #include <openssl/bn.h>
 #include <openssl/dh.h>
-#endif
 
 #ifdef PHP_WIN32
 #include "win32/winutil.h"
@@ -80,9 +77,7 @@
 
 #ifndef OPENSSL_NO_TLSEXT
 #define HAVE_TLS_SNI 1
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 #define HAVE_TLS_ALPN 1
-#endif
 #endif
 
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L && !defined(LIBRESSL_VERSION_NUMBER)
@@ -122,7 +117,6 @@ static RSA *php_openssl_tmp_rsa_cb(SSL *s, int is_export, int keylength);
 extern php_stream* php_openssl_get_stream_from_ssl_handle(const SSL *ssl);
 extern zend_string* php_openssl_x509_fingerprint(X509 *peer, const char *method, zend_bool raw);
 extern int php_openssl_get_ssl_stream_data_index();
-extern int php_openssl_get_x509_list_id(void);
 static struct timeval php_openssl_subtract_timeval(struct timeval a, struct timeval b);
 static int php_openssl_compare_timeval(struct timeval a, struct timeval b);
 static ssize_t php_openssl_sockop_io(int read, php_stream *stream, char *buf, size_t count);
@@ -1149,7 +1143,7 @@ static void php_openssl_limit_handshake_reneg(const SSL *ssl) /* {{{ */
 
 			/* Closing the stream inside this callback would segfault! */
 			stream->flags |= PHP_STREAM_FLAG_NO_FCLOSE;
-			if (FAILURE == call_user_function_ex(NULL, NULL, val, &retval, 1, &param, 0, NULL)) {
+			if (FAILURE == call_user_function(NULL, NULL, val, &retval, 1, &param)) {
 				php_error(E_WARNING, "SSL: failed invoking reneg limit notification callback");
 			}
 			stream->flags ^= PHP_STREAM_FLAG_NO_FCLOSE;
@@ -1295,12 +1289,8 @@ static int php_openssl_set_server_ecdh_curve(php_stream *stream, SSL_CTX *ctx) /
 
 	zvcurve = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream), "ssl", "ecdh_curve");
 	if (zvcurve == NULL) {
-#if OPENSSL_VERSION_NUMBER >= 0x10002000L
 		SSL_CTX_set_ecdh_auto(ctx, 1);
 		return SUCCESS;
-#else
-		curve_nid = NID_X9_62_prime256v1;
-#endif
 	} else {
 		if (!try_convert_to_string(zvcurve)) {
 			return FAILURE;
@@ -1709,16 +1699,12 @@ int php_openssl_setup_crypto(php_stream *stream,
 	}
 
 	if (GET_VER_OPT("security_level")) {
-#ifdef HAVE_SEC_LEVEL
 		zend_long lval = zval_get_long(val);
 		if (lval < 0 || lval > 5) {
 			php_error_docref(NULL, E_WARNING, "Security level must be between 0 and 5");
 		}
+#ifdef HAVE_SEC_LEVEL
 		SSL_CTX_set_security_level(sslsock->ctx, lval);
-#else
-		php_error_docref(NULL, E_WARNING,
-				"security_level is not supported by the linked OpenSSL library "
-				"- it is supported from version 1.1.0");
 #endif
 	}
 
@@ -1824,13 +1810,17 @@ static int php_openssl_capture_peer_certs(php_stream *stream,
 		php_openssl_netstream_data_t *sslsock, X509 *peer_cert) /* {{{ */
 {
 	zval *val, zcert;
+	php_openssl_certificate_object *cert_object;
 	int cert_captured = 0;
 
 	if (NULL != (val = php_stream_context_get_option(PHP_STREAM_CONTEXT(stream),
 			"ssl", "capture_peer_cert")) &&
 		zend_is_true(val)
 	) {
-		ZVAL_RES(&zcert, zend_register_resource(peer_cert, php_openssl_get_x509_list_id()));
+		object_init_ex(&zcert, php_openssl_certificate_ce);
+		cert_object = Z_OPENSSL_CERTIFICATE_P(&zcert);
+		cert_object->x509 = peer_cert;
+
 		php_stream_context_set_option(PHP_STREAM_CONTEXT(stream), "ssl", "peer_certificate", &zcert);
 		zval_ptr_dtor(&zcert);
 		cert_captured = 1;
@@ -1851,7 +1841,10 @@ static int php_openssl_capture_peer_certs(php_stream *stream,
 
 			for (i = 0; i < sk_X509_num(chain); i++) {
 				X509 *mycert = X509_dup(sk_X509_value(chain, i));
-				ZVAL_RES(&zcert, zend_register_resource(mycert, php_openssl_get_x509_list_id()));
+
+				object_init_ex(&zcert, php_openssl_certificate_ce);
+				cert_object = Z_OPENSSL_CERTIFICATE_P(&zcert);
+				cert_object->x509 = mycert;
 				add_next_index_zval(&arr, &zcert);
 			}
 
