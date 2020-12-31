@@ -162,18 +162,17 @@ static int mysql_handle_closer(pdo_dbh_t *dbh)
 /* }}} */
 
 /* {{{ mysql_handle_preparer */
-static int mysql_handle_preparer(pdo_dbh_t *dbh, const char *sql, size_t sql_len, pdo_stmt_t *stmt, zval *driver_options)
+static int mysql_handle_preparer(pdo_dbh_t *dbh, zend_string *sql, pdo_stmt_t *stmt, zval *driver_options)
 {
 	pdo_mysql_db_handle *H = (pdo_mysql_db_handle *)dbh->driver_data;
 	pdo_mysql_stmt *S = ecalloc(1, sizeof(pdo_mysql_stmt));
-	char *nsql = NULL;
-	size_t nsql_len = 0;
+	zend_string *nsql = NULL;
 	int ret;
 	int server_version;
 
 	PDO_DBG_ENTER("mysql_handle_preparer");
 	PDO_DBG_INF_FMT("dbh=%p", dbh);
-	PDO_DBG_INF_FMT("sql=%.*s", (int)sql_len, sql);
+	PDO_DBG_INF_FMT("sql=%.*s", ZSTR_LEN(sql), ZSTR_VAL(sql));
 
 	S->H = H;
 	stmt->driver_data = S;
@@ -188,12 +187,11 @@ static int mysql_handle_preparer(pdo_dbh_t *dbh, const char *sql, size_t sql_len
 		goto fallback;
 	}
 	stmt->supports_placeholders = PDO_PLACEHOLDER_POSITIONAL;
-	ret = pdo_parse_params(stmt, (char*)sql, sql_len, &nsql, &nsql_len);
+	ret = pdo_parse_params(stmt, sql, &nsql);
 
 	if (ret == 1) {
 		/* query was rewritten */
 		sql = nsql;
-		sql_len = nsql_len;
 	} else if (ret == -1) {
 		/* failed to parse */
 		strcpy(dbh->error_code, stmt->error_code);
@@ -203,14 +201,14 @@ static int mysql_handle_preparer(pdo_dbh_t *dbh, const char *sql, size_t sql_len
 	if (!(S->stmt = mysql_stmt_init(H->server))) {
 		pdo_mysql_error(dbh);
 		if (nsql) {
-			efree(nsql);
+			zend_string_release(nsql);
 		}
 		PDO_DBG_RETURN(0);
 	}
 
-	if (mysql_stmt_prepare(S->stmt, sql, sql_len)) {
+	if (mysql_stmt_prepare(S->stmt, ZSTR_VAL(sql), ZSTR_LEN(sql))) {
 		if (nsql) {
-			efree(nsql);
+			zend_string_release(nsql);
 		}
 		/* TODO: might need to pull statement specific info here? */
 		/* if the query isn't supported by the protocol, fallback to emulation */
@@ -223,13 +221,12 @@ static int mysql_handle_preparer(pdo_dbh_t *dbh, const char *sql, size_t sql_len
 		PDO_DBG_RETURN(0);
 	}
 	if (nsql) {
-		efree(nsql);
+		zend_string_release(nsql);
 	}
 
 	S->num_params = mysql_stmt_param_count(S->stmt);
 
 	if (S->num_params) {
-		S->params_given = 0;
 #ifdef PDO_USE_MYSQLND
 		S->params = NULL;
 #else
@@ -508,13 +505,11 @@ static int pdo_mysql_get_attribute(pdo_dbh_t *dbh, zend_long attr, zval *return_
 		case PDO_MYSQL_ATTR_MAX_BUFFER_SIZE:
 			ZVAL_LONG(return_value, H->max_buffer_size);
 			break;
-#else
-		case PDO_MYSQL_ATTR_LOCAL_INFILE:
-			ZVAL_BOOL(
-				return_value,
-				(H->server->data->options->flags & CLIENT_LOCAL_FILES) == CLIENT_LOCAL_FILES);
-			break;
 #endif
+
+		case PDO_MYSQL_ATTR_LOCAL_INFILE:
+			ZVAL_BOOL(return_value, H->local_infile);
+			break;
 
 		default:
 			PDO_DBG_RETURN(0);
@@ -710,18 +705,15 @@ static int pdo_mysql_handle_factory(pdo_dbh_t *dbh, zval *driver_options)
 			goto cleanup;
 		}
 
-#if defined(MYSQL_OPT_LOCAL_INFILE) || defined(PDO_USE_MYSQLND)
-		unsigned int local_infile = (unsigned int) pdo_attr_lval(driver_options, PDO_MYSQL_ATTR_LOCAL_INFILE, 0);
-# ifndef PDO_USE_MYSQLND
-		if (PG(open_basedir) && PG(open_basedir)[0] != '\0') {
-			local_infile = 0;
-		}
-# endif
-		if (mysql_options(H->server, MYSQL_OPT_LOCAL_INFILE, (const char *)&local_infile)) {
-			pdo_mysql_error(dbh);
-			goto cleanup;
-		}
+		if (pdo_attr_lval(driver_options, PDO_MYSQL_ATTR_LOCAL_INFILE, 0)) {
+			H->local_infile = 1;
+#ifndef PDO_USE_MYSQLND
+			if (PG(open_basedir) && PG(open_basedir)[0] != '\0') {
+				H->local_infile = 0;
+			}
 #endif
+		}
+
 #ifdef MYSQL_OPT_RECONNECT
 		/* since 5.0.3, the default for this option is 0 if not specified.
 		 * we want the old behaviour
@@ -825,16 +817,22 @@ static int pdo_mysql_handle_factory(pdo_dbh_t *dbh, zval *driver_options)
 			}
 		}
 #endif
-	} else {
-#if defined(MYSQL_OPT_LOCAL_INFILE) || defined(PDO_USE_MYSQLND)
-		// in case there are no driver options disable 'local infile' explicitly
-		unsigned int local_infile = 0;
-		if (mysql_options(H->server, MYSQL_OPT_LOCAL_INFILE, (const char *)&local_infile)) {
-			pdo_mysql_error(dbh);
-			goto cleanup;
-		}
-#endif
 	}
+
+	/* Always explicitly set the LOCAL_INFILE option. */
+	unsigned int local_infile = H->local_infile;
+	if (mysql_options(H->server, MYSQL_OPT_LOCAL_INFILE, (const char *)&local_infile)) {
+		pdo_mysql_error(dbh);
+		goto cleanup;
+	}
+
+#ifdef PDO_USE_MYSQLND
+	unsigned int int_and_float_native = 1;
+	if (mysql_options(H->server, MYSQLND_OPT_INT_AND_FLOAT_NATIVE, (const char *) &int_and_float_native)) {
+		pdo_mysql_error(dbh);
+		goto cleanup;
+	}
+#endif
 
 	if (vars[0].optval && mysql_options(H->server, MYSQL_SET_CHARSET_NAME, vars[0].optval)) {
 		pdo_mysql_error(dbh);

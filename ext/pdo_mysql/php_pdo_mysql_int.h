@@ -104,6 +104,7 @@ typedef struct {
 	unsigned buffered:1;
 	unsigned emulate_prepare:1;
 	unsigned fetch_table_names:1;
+	unsigned local_infile:1;
 #ifndef PDO_USE_MYSQLND
 	zend_ulong max_buffer_size;
 #endif
@@ -119,12 +120,6 @@ typedef struct {
 	pdo_mysql_db_handle 	*H;
 	MYSQL_RES				*result;
 	const MYSQL_FIELD		*fields;
-	MYSQL_ROW				current_data;
-#ifdef PDO_USE_MYSQLND
-	const size_t			*current_lengths;
-#else
-	unsigned long			*current_lengths;
-#endif
 	pdo_mysql_error_info 	einfo;
 #ifdef PDO_USE_MYSQLND
 	MYSQLND_STMT 			*stmt;
@@ -136,11 +131,14 @@ typedef struct {
 #ifndef PDO_USE_MYSQLND
 	my_bool					*in_null;
 	zend_ulong			*in_length;
-#endif
 	PDO_MYSQL_PARAM_BIND	*bound_result;
 	my_bool					*out_null;
 	zend_ulong				*out_length;
-	unsigned int			params_given;
+	MYSQL_ROW				current_data;
+	unsigned long			*current_lengths;
+#else
+	zval					*current_row;
+#endif
 	unsigned				max_length:1;
 	/* Whether all result sets have been fully consumed.
 	 * If this flag is not set, they need to be consumed during destruction. */

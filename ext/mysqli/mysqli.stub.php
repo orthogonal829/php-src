@@ -340,13 +340,11 @@ class mysqli_result implements IteratorAggregate
      */
     public function fetch_field_direct(int $index) {}
 
-#if defined(MYSQLI_USE_MYSQLND)
     /**
      * @return array|false
      * @alias mysqli_fetch_all
      */
     public function fetch_all(int $mode = MYSQLI_NUM) {}
-#endif
 
     /**
      * @return array|null|false
@@ -457,13 +455,13 @@ class mysqli_stmt
      * @alias mysqli_stmt_more_results
      */
     public function more_results() {}
+#endif
 
     /**
      * @return bool
      * @alias mysqli_stmt_next_result
      */
     public function next_result() {}
-#endif
 
     /**
      * @return int|string
@@ -573,9 +571,7 @@ function mysqli_fetch_field_direct(mysqli_result $result, int $index): object|fa
 
 function mysqli_fetch_lengths(mysqli_result $result): array|false {}
 
-#if defined(MYSQLI_USE_MYSQLND)
 function mysqli_fetch_all(mysqli_result $result, int $mode = MYSQLI_NUM): array|false {}
-#endif
 
 function mysqli_fetch_array(mysqli_result $result, int $mode = MYSQLI_BOTH): array|null|false {}
 
@@ -717,9 +713,9 @@ function mysqli_stmt_insert_id(mysqli_stmt $statement): int|string {}
 
 #if defined(MYSQLI_USE_MYSQLND)
 function mysqli_stmt_more_results(mysqli_stmt $statement): bool {}
+#endif
 
 function mysqli_stmt_next_result(mysqli_stmt $statement): bool {}
-#endif
 
 function mysqli_stmt_num_rows(mysqli_stmt $statement): int|string {}
 
