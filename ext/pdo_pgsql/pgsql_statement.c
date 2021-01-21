@@ -57,7 +57,7 @@
 static int pgsql_stmt_dtor(pdo_stmt_t *stmt)
 {
 	pdo_pgsql_stmt *S = (pdo_pgsql_stmt*)stmt->driver_data;
-	zend_bool server_obj_usable = !Z_ISUNDEF(stmt->database_object_handle)
+	bool server_obj_usable = !Z_ISUNDEF(stmt->database_object_handle)
 		&& IS_OBJ_VALID(EG(objects_store).object_buckets[Z_OBJ_HANDLE(stmt->database_object_handle)])
 		&& !(OBJ_FLAGS(Z_OBJ(stmt->database_object_handle)) & IS_OBJ_FREE_CALLED);
 
@@ -275,11 +275,11 @@ static int pgsql_stmt_param_hook(pdo_stmt_t *stmt, struct pdo_bound_param_data *
 						ZEND_ATOL(param->paramno, ZSTR_VAL(param->name) + 1);
 					} else {
 						/* resolve parameter name to rewritten name */
-						char *namevar;
+						zend_string *namevar;
 
 						if (stmt->bound_param_map && (namevar = zend_hash_find_ptr(stmt->bound_param_map,
 								param->name)) != NULL) {
-							ZEND_ATOL(param->paramno, namevar + 1);
+							ZEND_ATOL(param->paramno, ZSTR_VAL(namevar) + 1);
 							param->paramno--;
 						} else {
 							pdo_pgsql_error_stmt_msg(stmt, 0, "HY093", ZSTR_VAL(param->name));
@@ -359,7 +359,6 @@ static int pgsql_stmt_param_hook(pdo_stmt_t *stmt, struct pdo_bound_param_data *
 							} else {
 								zend_string *str = php_stream_copy_to_mem(stm, PHP_STREAM_COPY_ALL, 0);
 								if (str != NULL) {
-									//??SEPARATE_ZVAL_IF_NOT_REF(&param->parameter);
 									ZVAL_STR(parameter, str);
 								} else {
 									ZVAL_EMPTY_STRING(parameter);
@@ -381,8 +380,7 @@ static int pgsql_stmt_param_hook(pdo_stmt_t *stmt, struct pdo_bound_param_data *
 						S->param_lengths[param->paramno] = 1;
 						S->param_formats[param->paramno] = 0;
 					} else {
-						//SEPARATE_ZVAL_IF_NOT_REF(&param->parameter);
-						convert_to_string_ex(parameter);
+						convert_to_string(parameter);
 						S->param_values[param->paramno] = Z_STRVAL_P(parameter);
 						S->param_lengths[param->paramno] = Z_STRLEN_P(parameter);
 						S->param_formats[param->paramno] = 0;

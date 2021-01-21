@@ -26,14 +26,7 @@ typedef struct _pdo_stmt_t		 pdo_stmt_t;
 typedef struct _pdo_row_t		 pdo_row_t;
 struct pdo_bound_param_data;
 
-#ifdef PHP_WIN32
-typedef __int64 pdo_int64_t;
-typedef unsigned __int64 pdo_uint64_t;
-#else
-typedef long long int pdo_int64_t;
-typedef unsigned long long int pdo_uint64_t;
-#endif
-PDO_API char *php_pdo_int64_to_str(pdo_int64_t i64);
+PDO_API zend_string *php_pdo_int64_to_str(int64_t i64);
 
 #ifndef TRUE
 # define TRUE 1
@@ -226,42 +219,53 @@ typedef struct {
 /* {{{ methods for a database handle */
 
 /* close or otherwise disconnect the database */
-typedef int (*pdo_dbh_close_func)(pdo_dbh_t *dbh);
+typedef void (*pdo_dbh_close_func)(pdo_dbh_t *dbh);
 
-/* prepare a statement and stash driver specific portion into stmt */
-typedef int (*pdo_dbh_prepare_func)(pdo_dbh_t *dbh, zend_string *sql, pdo_stmt_t *stmt, zval *driver_options);
+/* prepare a statement and stash driver specific portion into stmt
+ * return true on success, false otherwise */
+typedef bool (*pdo_dbh_prepare_func)(pdo_dbh_t *dbh, zend_string *sql, pdo_stmt_t *stmt, zval *driver_options);
 
-/* execute a statement (that does not return a result set) */
-typedef zend_long (*pdo_dbh_do_func)(pdo_dbh_t *dbh, const char *sql, size_t sql_len);
+/* execute a statement (that does not return a result set)
+ * Return -1 on failure, otherwise the number of affected rows */
+typedef zend_long (*pdo_dbh_do_func)(pdo_dbh_t *dbh, const zend_string *sql);
 
 /* quote a string */
-typedef int (*pdo_dbh_quote_func)(pdo_dbh_t *dbh, const char *unquoted, size_t unquotedlen, char **quoted, size_t *quotedlen, enum pdo_param_type paramtype);
+typedef zend_string* (*pdo_dbh_quote_func)(pdo_dbh_t *dbh, const zend_string *unquoted, enum pdo_param_type paramtype);
 
-/* transaction related */
-typedef int (*pdo_dbh_txn_func)(pdo_dbh_t *dbh);
+/* transaction related (beingTransaction(), commit, rollBack, inTransaction)
+ * Return true if currently inside a transaction, false otherwise. */
+typedef bool (*pdo_dbh_txn_func)(pdo_dbh_t *dbh);
 
-/* setting of attributes */
-typedef int (*pdo_dbh_set_attr_func)(pdo_dbh_t *dbh, zend_long attr, zval *val);
+/* setting of attributes
+ * Return true on success and false in case of failure */
+typedef bool (*pdo_dbh_set_attr_func)(pdo_dbh_t *dbh, zend_long attr, zval *val);
 
-/* return last insert id.  NULL indicates error condition, otherwise, the return value
- * MUST be an emalloc'd NULL terminated string. */
-typedef char *(*pdo_dbh_last_id_func)(pdo_dbh_t *dbh, const char *name, size_t *len);
+/* return last insert id.  NULL indicates error condition.
+ * name MIGHT be NULL */
+typedef zend_string *(*pdo_dbh_last_id_func)(pdo_dbh_t *dbh, const zend_string *name);
 
-/* fetch error information.  if stmt is not null, fetch information pertaining
- * to the statement, otherwise fetch global error information.  The driver
- * should add the following information to the array "info" in this order:
+/* Fetch error information.
+ * If stmt is not null, fetch information pertaining to the statement,
+ * otherwise fetch global error information.
+ * info is an initialized PHP array, if there are no messages leave it empty.
+ * The driver should add the following information to the array "info" in this order:
  * - native error code
  * - string representation of the error code ... any other optional driver
- *   specific data ...  */
-typedef	int (*pdo_dbh_fetch_error_func)(pdo_dbh_t *dbh, pdo_stmt_t *stmt, zval *info);
+ *   specific data ...
+ * PDO takes care of normalizing the array. */
+typedef void (*pdo_dbh_fetch_error_func)(pdo_dbh_t *dbh, pdo_stmt_t *stmt, zval *info);
 
-/* fetching of attributes */
+/* fetching of attributes
+ * There are 3 return states:
+ * * -1 for errors while retrieving a valid attribute
+ * * 0 for attempting to retrieve an attribute which is not supported by the driver
+ * * any other value for success, *val must be set to the attribute value */
 typedef int (*pdo_dbh_get_attr_func)(pdo_dbh_t *dbh, zend_long attr, zval *val);
 
 /* checking/pinging persistent connections; return SUCCESS if the connection
  * is still alive and ready to be used, FAILURE otherwise.
  * You may set this handler to NULL, which is equivalent to returning SUCCESS. */
-typedef int (*pdo_dbh_check_liveness_func)(pdo_dbh_t *dbh);
+typedef zend_result (*pdo_dbh_check_liveness_func)(pdo_dbh_t *dbh);
 
 /* called at request end for each persistent dbh; this gives the driver
  * the opportunity to safely release resources that only have per-request
@@ -301,6 +305,7 @@ struct pdo_dbh_methods {
 	pdo_dbh_check_liveness_func	check_liveness;
 	pdo_dbh_get_driver_methods_func get_driver_methods;
 	pdo_dbh_request_shutdown	persistent_shutdown;
+	/* if defined to NULL, PDO will use its internal transaction tracking state */
 	pdo_dbh_txn_func		in_transaction;
 	pdo_dbh_get_gc_func		get_gc;
 };
@@ -442,7 +447,7 @@ struct _pdo_dbh_t {
 	unsigned alloc_own_columns:1;
 
 	/* if true, commit or rollBack is allowed to be called */
-	unsigned in_txn:1;
+	bool in_txn:1;
 
 	/* max length a single character can become after correct quoting */
 	unsigned max_escaped_char_length:3;
@@ -643,8 +648,9 @@ struct _pdo_row_t {
 	pdo_stmt_t *stmt;
 };
 
-/* call this in MINIT to register your PDO driver */
-PDO_API int php_pdo_register_driver(const pdo_driver_t *driver);
+/* Call this in MINIT to register the PDO driver.
+ * Registering the driver might fail and should be reported accordingly in MINIT. */
+PDO_API zend_result php_pdo_register_driver(const pdo_driver_t *driver);
 /* call this in MSHUTDOWN to unregister your PDO driver */
 PDO_API void php_pdo_unregister_driver(const pdo_driver_t *driver);
 

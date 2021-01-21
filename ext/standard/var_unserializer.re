@@ -29,6 +29,10 @@
 #define VAR_WAKEUP_FLAG 1
 #define VAR_UNSERIALIZE_FLAG 2
 
+/* Each element is encoded using at least 2 characters. */
+#define IS_FAKE_ELEM_COUNT(num_elems, serialized_len) \
+	((num_elems) > (serialized_len) / 2)
+
 typedef struct {
 	zend_long used_slots;
 	void *next;
@@ -217,7 +221,7 @@ PHPAPI void var_destroy(php_unserialize_data_t *var_hashx)
 	zend_long i;
 	var_entries *var_hash = (*var_hashx)->entries.next;
 	var_dtor_entries *var_dtor_hash = (*var_hashx)->first_dtor;
-	zend_bool delayed_call_failed = 0;
+	bool delayed_call_failed = 0;
 	zval wakeup_name;
 	ZVAL_UNDEF(&wakeup_name);
 
@@ -688,10 +692,10 @@ static inline int object_custom(UNSERIALIZE_PARAMETER, zend_class_entry *ce)
 #ifdef PHP_WIN32
 # pragma optimize("", off)
 #endif
-static inline int object_common(UNSERIALIZE_PARAMETER, zend_long elements, zend_bool has_unserialize)
+static inline int object_common(UNSERIALIZE_PARAMETER, zend_long elements, bool has_unserialize)
 {
 	HashTable *ht;
-	zend_bool has_wakeup;
+	bool has_wakeup;
 
 	if (has_unserialize) {
 		zval ary, *tmp;
@@ -1001,7 +1005,7 @@ use_double:
 	*p = YYCURSOR;
     if (!var_hash) return 0;
 
-	if (elements < 0 || elements >= HT_MAX_SIZE || elements > max - YYCURSOR) {
+	if (elements < 0 || elements >= HT_MAX_SIZE || IS_FAKE_ELEM_COUNT(elements, max - YYCURSOR)) {
 		return 0;
 	}
 
@@ -1034,9 +1038,9 @@ object ":" uiv ":" ["]	{
 	char *str;
 	zend_string *class_name;
 	zend_class_entry *ce;
-	zend_bool incomplete_class = 0;
-	zend_bool custom_object = 0;
-	zend_bool has_unserialize = 0;
+	bool incomplete_class = 0;
+	bool custom_object = 0;
+	bool has_unserialize = 0;
 
 	zval user_func;
 	zval retval;
@@ -1169,7 +1173,7 @@ object ":" uiv ":" ["]	{
 	}
 
 	elements = parse_iv2(*p + 2, p);
-	if (elements < 0 || elements > max - YYCURSOR) {
+	if (elements < 0 || IS_FAKE_ELEM_COUNT(elements, max - YYCURSOR)) {
 		zend_string_release_ex(class_name, 0);
 		return 0;
 	}

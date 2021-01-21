@@ -40,7 +40,7 @@ struct st_mysqlnd_time
 {
   unsigned int  year, month, day, hour, minute, second;
   zend_ulong second_part;
-  zend_bool     neg;
+  bool     neg;
   enum mysqlnd_timestamp_type time_type;
 };
 
@@ -57,7 +57,7 @@ ps_fetch_from_1_to_8_bytes(zval * zv, const MYSQLND_FIELD * const field, const u
 {
 	char tmp[22];
 	size_t tmp_len = 0;
-	zend_bool is_bit = field->type == MYSQL_TYPE_BIT;
+	bool is_bit = field->type == MYSQL_TYPE_BIT;
 	DBG_ENTER("ps_fetch_from_1_to_8_bytes");
 	DBG_INF_FMT("zv=%p byte_count=%u", zv, byte_count);
 	if (field->flags & UNSIGNED_FLAG) {
@@ -219,7 +219,7 @@ ps_fetch_time(zval * zv, const MYSQLND_FIELD * const field, const unsigned int p
 		const zend_uchar * to = *row;
 
 		t.time_type = MYSQLND_TIMESTAMP_TIME;
-		t.neg			= (zend_bool) to[0];
+		t.neg			= (bool) to[0];
 
 		t.day			= (zend_ulong) sint4korr(to+1);
 		t.hour			= (unsigned int) to[5];
@@ -603,7 +603,7 @@ mysqlnd_stmt_execute_prepare_param_types(MYSQLND_STMT_DATA * stmt, zval ** copie
 				*/
 				if (d >= (double) ZEND_LONG_MAX || d < (double) ZEND_LONG_MIN) {
 					stmt->send_types_to_server = *resend_types_next_time = 1;
-					convert_to_string_ex(tmp_data);
+					convert_to_string(tmp_data);
 				} else {
 					convert_to_long(tmp_data);
 				}
@@ -647,7 +647,7 @@ mysqlnd_stmt_execute_store_types(MYSQLND_STMT_DATA * stmt, zval * copies, zend_u
 					current_type = MYSQL_TYPE_VAR_STRING;
 					/*
 					  don't change stmt->param_bind[i].type to MYSQL_TYPE_VAR_STRING
-					  we force convert_to_long_ex in all cases, thus the type will be right in the next switch.
+					  we force convert_to_long in all cases, thus the type will be right in the next switch.
 					  if the type is however not long, then we will do a goto in the next switch.
 					  We want to preserve the original bind type given by the user. Thus, we do these hacks.
 					*/
@@ -714,7 +714,7 @@ mysqlnd_stmt_execute_calculate_param_values_size(MYSQLND_STMT_DATA * stmt, zval 
 					if (Z_TYPE_P(tmp_data) == IS_STRING) {
 						goto use_string;
 					}
-					convert_to_long_ex(tmp_data);
+					convert_to_long(tmp_data);
 				}
 				*data_size += 4 + is_longlong;
 				break;
@@ -771,7 +771,7 @@ mysqlnd_stmt_execute_store_param_values(MYSQLND_STMT_DATA * stmt, zval * copies,
 		} else {
 			switch (stmt->param_bind[i].type) {
 				case MYSQL_TYPE_DOUBLE:
-					convert_to_double_ex(data);
+					convert_to_double(data);
 					float8store(*p, Z_DVAL_P(data));
 					(*p) += 8;
 					break;
@@ -905,7 +905,7 @@ end:
 
 /* {{{ mysqlnd_stmt_execute_generate_request */
 enum_func_status
-mysqlnd_stmt_execute_generate_request(MYSQLND_STMT * const s, zend_uchar ** request, size_t *request_len, zend_bool * free_buffer)
+mysqlnd_stmt_execute_generate_request(MYSQLND_STMT * const s, zend_uchar ** request, size_t *request_len, bool * free_buffer)
 {
 	MYSQLND_STMT_DATA * stmt = s->data;
 	zend_uchar	*p = stmt->execute_cmd_buffer.buffer,

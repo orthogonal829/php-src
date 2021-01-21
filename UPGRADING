@@ -19,6 +19,15 @@ PHP 8.1 UPGRADE NOTES
 1. Backward Incompatible Changes
 ========================================
 
+- Core:
+  . Access to the $GLOBALS array is now subject to a number of restrictions.
+    Read and write access to individual array elements like $GLOBALS['var']
+    continues to work as-is. Read-only access to the entire $GLOBALS array also
+    continues to be supported. However, write access to the entire $GLOBALS
+    array is no longer supported. For example, array_pop($GLOBALS) will result
+    in an error.
+    RFC: https://wiki.php.net/rfc/restrict_globals_usage
+
 - Fileinfo:
   . The fileinfo functions now accept and return, respectively, finfo objects
     instead of resources.
@@ -60,10 +69,24 @@ PHP 8.1 UPGRADE NOTES
 
 - Standard:
   . version_compare() no longer accepts undocumented operator abbreviations.
+  . htmlspecialchars(), htmlentities(), htmlspecialchars_decode(),
+    html_entitity_decode() and get_html_translation_table() now use
+    ENT_QUOTES | ENT_SUBSTITUTE rather than ENT_COMPAT by default. This means
+    that ' is escaped to &#039; while previously it was left alone.
+    Additionally, malformed UTF-8 will be replaced by a Unicode substitution
+    character, instead of resulting in an empty string.
 
 ========================================
 2. New Features
 ========================================
+
+- Core:
+  . It is now possible to specify octal integer by using the explicit "0o"/"0O"
+    prefix similar to hexadecimal ("0x"/"0X) and binary ("0b"/"0B") integer literals
+    RFC: https://wiki.php.net/rfc/explicit_octal_notation
+
+- Curl:
+  . Added CURLOPT_DOH_URL option.
 
 - hash:
   . The following functions have changed signatures:
@@ -89,6 +112,24 @@ PHP 8.1 UPGRADE NOTES
 
     A valid seed value is within the range from 0 to the plaform defined UINT_MAX, usually 4294967295.
 
+  . Added xxHash. The implementation brings in the following arguments
+
+    - xxh32, 32-bit hash
+    - xxh64, 64-bit hash
+    - xxh3, 64-bit hash
+    - xxh128, 128-bit hash
+
+    The initial hash state can be passed through the `seed` key in the `$options` array, for example:
+
+    ```php
+    $h = hash("xxh3", $data, options: ["seed" => 42]);
+    echo $h, "\n";
+    ```
+
+- Posix:
+  . Added POSIX_RLIMIT_KQUEUES and POSIX_RLIMIT_NPTS. These rlimits are only
+    available on FreeBSD.
+
 ========================================
 3. Changes in SAPI modules
 ========================================
@@ -100,6 +141,15 @@ PHP 8.1 UPGRADE NOTES
 ========================================
 5. Changed Functions
 ========================================
+
+- Filter:
+  . The FILTER_FLAG_ALLOW_OCTAL flag of the FILTER_VALIDATE_INT filter now accept
+    octal string with the leading octal prefix ("0o"/"0O")
+    RFC: https://wiki.php.net/rfc/explicit_octal_notation
+
+- GMP:
+  . All GMP function now accept octal string with the leading octal prefix ("0o"/"0O")
+    RFC: https://wiki.php.net/rfc/explicit_octal_notation
 
 ========================================
 6. New Functions

@@ -293,20 +293,17 @@ class Type {
         return null;
     }
 
-    public function tryToRepresentableType(): ?RepresentableType {
-        $classType = null;
+    public function toArginfoType(): ?ArginfoType {
+        $classTypes = [];
         $builtinTypes = [];
         foreach ($this->types as $type) {
             if ($type->isBuiltin) {
                 $builtinTypes[] = $type;
-            } else if ($classType === null) {
-                $classType = $type;
             } else {
-                // We can only represent a single class type.
-                return null;
+                $classTypes[] = $type;
             }
         }
-        return new RepresentableType($classType, $builtinTypes);
+        return new ArginfoType($classTypes, $builtinTypes);
     }
 
     public static function equals(?Type $a, ?Type $b): bool {
@@ -339,18 +336,32 @@ class Type {
     }
 }
 
-class RepresentableType {
-    /** @var ?SimpleType $classType */
-    public $classType;
-    /** @var SimpleType[] $builtinTypes */
-    public $builtinTypes;
+class ArginfoType {
+    /** @var ClassType[] $classTypes */
+    public $classTypes;
 
-    public function __construct(?SimpleType $classType, array $builtinTypes) {
-        $this->classType = $classType;
+    /** @var SimpleType[] $builtinTypes */
+    private $builtinTypes;
+
+    public function __construct(array $classTypes, array $builtinTypes) {
+        $this->classTypes = $classTypes;
         $this->builtinTypes = $builtinTypes;
     }
 
+    public function hasClassType(): bool {
+        return !empty($this->classTypes);
+    }
+
+    public function toClassTypeString(): string {
+        return implode('|', array_map(function(SimpleType $type) {
+            return $type->toEscapedName();
+        }, $this->classTypes));
+    }
+
     public function toTypeMask(): string {
+        if (empty($this->builtinTypes)) {
+            return '0';
+        }
         return implode('|', array_map(function(SimpleType $type) {
             return $type->toTypeMask();
         }, $this->builtinTypes));
@@ -1016,7 +1027,7 @@ class DocCommentTag {
         if ($this->name === "param") {
             preg_match('/^\s*([\w\|\\\\\[\]]+)\s*\$\w+.*$/', $value, $matches);
         } elseif ($this->name === "return") {
-            preg_match('/^\s*([\w\|\\\\\[\]]+)\s*$/', $value, $matches);
+            preg_match('/^\s*([\w\|\\\\\[\]]+)(\s+|$)/', $value, $matches);
         }
 
         if (isset($matches[1]) === false) {
@@ -1070,129 +1081,132 @@ function parseFunctionLike(
     Node\FunctionLike $func,
     ?string $cond
 ): FuncInfo {
-    $comment = $func->getDocComment();
-    $paramMeta = [];
-    $aliasType = null;
-    $alias = null;
-    $isDeprecated = false;
-    $verify = true;
-    $docReturnType = null;
-    $docParamTypes = [];
+    try {
+        $comment = $func->getDocComment();
+        $paramMeta = [];
+        $aliasType = null;
+        $alias = null;
+        $isDeprecated = false;
+        $verify = true;
+        $docReturnType = null;
+        $docParamTypes = [];
 
-    if ($comment) {
-        $tags = parseDocComment($comment);
-        foreach ($tags as $tag) {
-            if ($tag->name === 'prefer-ref') {
-                $varName = $tag->getVariableName();
-                if (!isset($paramMeta[$varName])) {
-                    $paramMeta[$varName] = [];
+        if ($comment) {
+            $tags = parseDocComment($comment);
+            foreach ($tags as $tag) {
+                if ($tag->name === 'prefer-ref') {
+                    $varName = $tag->getVariableName();
+                    if (!isset($paramMeta[$varName])) {
+                        $paramMeta[$varName] = [];
+                    }
+                    $paramMeta[$varName]['preferRef'] = true;
+                } else if ($tag->name === 'alias' || $tag->name === 'implementation-alias') {
+                    $aliasType = $tag->name;
+                    $aliasParts = explode("::", $tag->getValue());
+                    if (count($aliasParts) === 1) {
+                        $alias = new FunctionName(new Name($aliasParts[0]));
+                    } else {
+                        $alias = new MethodName(new Name($aliasParts[0]), $aliasParts[1]);
+                    }
+                } else if ($tag->name === 'deprecated') {
+                    $isDeprecated = true;
+                }  else if ($tag->name === 'no-verify') {
+                    $verify = false;
+                } else if ($tag->name === 'return') {
+                    $docReturnType = $tag->getType();
+                } else if ($tag->name === 'param') {
+                    $docParamTypes[$tag->getVariableName()] = $tag->getType();
                 }
-                $paramMeta[$varName]['preferRef'] = true;
-            } else if ($tag->name === 'alias' || $tag->name === 'implementation-alias') {
-                $aliasType = $tag->name;
-                $aliasParts = explode("::", $tag->getValue());
-                if (count($aliasParts) === 1) {
-                    $alias = new FunctionName(new Name($aliasParts[0]));
-                } else {
-                    $alias = new MethodName(new Name($aliasParts[0]), $aliasParts[1]);
-                }
-            } else if ($tag->name === 'deprecated') {
-                $isDeprecated = true;
-            }  else if ($tag->name === 'no-verify') {
-                $verify = false;
-            } else if ($tag->name === 'return') {
-                $docReturnType = $tag->getType();
-            } else if ($tag->name === 'param') {
-                $docParamTypes[$tag->getVariableName()] = $tag->getType();
-            }
-        }
-    }
-
-    $varNameSet = [];
-    $args = [];
-    $numRequiredArgs = 0;
-    $foundVariadic = false;
-    foreach ($func->getParams() as $i => $param) {
-        $varName = $param->var->name;
-        $preferRef = !empty($paramMeta[$varName]['preferRef']);
-        unset($paramMeta[$varName]);
-
-        if (isset($varNameSet[$varName])) {
-            throw new Exception("Duplicate parameter name $varName for function $name");
-        }
-        $varNameSet[$varName] = true;
-
-        if ($preferRef) {
-            $sendBy = ArgInfo::SEND_PREFER_REF;
-        } else if ($param->byRef) {
-            $sendBy = ArgInfo::SEND_BY_REF;
-        } else {
-            $sendBy = ArgInfo::SEND_BY_VAL;
-        }
-
-        if ($foundVariadic) {
-            throw new Exception("Error in function $name: only the last parameter can be variadic");
-        }
-
-        $type = $param->type ? Type::fromNode($param->type) : null;
-        if ($type === null && !isset($docParamTypes[$varName])) {
-            throw new Exception("Missing parameter type for function $name()");
-        }
-
-        if ($param->default instanceof Expr\ConstFetch &&
-            $param->default->name->toLowerString() === "null" &&
-            $type && !$type->isNullable()
-        ) {
-            $simpleType = $type->tryToSimpleType();
-            if ($simpleType === null) {
-                throw new Exception(
-                    "Parameter $varName of function $name has null default, but is not nullable");
             }
         }
 
-        $foundVariadic = $param->variadic;
+        $varNameSet = [];
+        $args = [];
+        $numRequiredArgs = 0;
+        $foundVariadic = false;
+        foreach ($func->getParams() as $i => $param) {
+            $varName = $param->var->name;
+            $preferRef = !empty($paramMeta[$varName]['preferRef']);
+            unset($paramMeta[$varName]);
 
-        $args[] = new ArgInfo(
-            $varName,
-            $sendBy,
-            $param->variadic,
-            $type,
-            isset($docParamTypes[$varName]) ? Type::fromPhpDoc($docParamTypes[$varName]) : null,
-            $param->default ? $prettyPrinter->prettyPrintExpr($param->default) : null
+            if (isset($varNameSet[$varName])) {
+                throw new Exception("Duplicate parameter name $varName");
+            }
+            $varNameSet[$varName] = true;
+
+            if ($preferRef) {
+                $sendBy = ArgInfo::SEND_PREFER_REF;
+            } else if ($param->byRef) {
+                $sendBy = ArgInfo::SEND_BY_REF;
+            } else {
+                $sendBy = ArgInfo::SEND_BY_VAL;
+            }
+
+            if ($foundVariadic) {
+                throw new Exception("Only the last parameter can be variadic");
+            }
+
+            $type = $param->type ? Type::fromNode($param->type) : null;
+            if ($type === null && !isset($docParamTypes[$varName])) {
+                throw new Exception("Missing parameter type");
+            }
+
+            if ($param->default instanceof Expr\ConstFetch &&
+                $param->default->name->toLowerString() === "null" &&
+                $type && !$type->isNullable()
+            ) {
+                $simpleType = $type->tryToSimpleType();
+                if ($simpleType === null) {
+                    throw new Exception("Parameter $varName has null default, but is not nullable");
+                }
+            }
+
+            $foundVariadic = $param->variadic;
+
+            $args[] = new ArgInfo(
+                $varName,
+                $sendBy,
+                $param->variadic,
+                $type,
+                isset($docParamTypes[$varName]) ? Type::fromPhpDoc($docParamTypes[$varName]) : null,
+                $param->default ? $prettyPrinter->prettyPrintExpr($param->default) : null
+            );
+            if (!$param->default && !$param->variadic) {
+                $numRequiredArgs = $i + 1;
+            }
+        }
+
+        foreach (array_keys($paramMeta) as $var) {
+            throw new Exception("Found metadata for invalid param $var");
+        }
+
+        $returnType = $func->getReturnType();
+        if ($returnType === null && $docReturnType === null && !$name->isConstructor() && !$name->isDestructor()) {
+            throw new Exception("Missing return type");
+        }
+
+        $return = new ReturnInfo(
+            $func->returnsByRef(),
+            $returnType ? Type::fromNode($returnType) : null,
+            $docReturnType ? Type::fromPhpDoc($docReturnType) : null
         );
-        if (!$param->default && !$param->variadic) {
-            $numRequiredArgs = $i + 1;
-        }
+
+        return new FuncInfo(
+            $name,
+            $classFlags,
+            $flags,
+            $aliasType,
+            $alias,
+            $isDeprecated,
+            $verify,
+            $args,
+            $return,
+            $numRequiredArgs,
+            $cond
+        );
+    } catch (Exception $e) {
+        throw new Exception($name . "(): " .$e->getMessage());
     }
-
-    foreach (array_keys($paramMeta) as $var) {
-        throw new Exception("Found metadata for invalid param $var of function $name");
-    }
-
-    $returnType = $func->getReturnType();
-    if ($returnType === null && $docReturnType === null && !$name->isConstructor() && !$name->isDestructor()) {
-        throw new Exception("Missing return type for function $name()");
-    }
-
-    $return = new ReturnInfo(
-        $func->returnsByRef(),
-        $returnType ? Type::fromNode($returnType) : null,
-        $docReturnType ? Type::fromPhpDoc($docReturnType) : null
-    );
-
-    return new FuncInfo(
-        $name,
-        $classFlags,
-        $flags,
-        $aliasType,
-        $alias,
-        $isDeprecated,
-        $verify,
-        $args,
-        $return,
-        $numRequiredArgs,
-        $cond
-    );
 }
 
 function handlePreprocessorConditions(array &$conds, Stmt $stmt): ?string {
@@ -1362,24 +1376,23 @@ function funcInfoToCode(FuncInfo $funcInfo): string {
                     $simpleReturnType->toEscapedName(), $returnType->isNullable()
                 );
             }
-        } else if (null !== $representableType = $returnType->tryToRepresentableType()) {
-            if ($representableType->classType !== null) {
+        } else {
+            $arginfoType = $returnType->toArginfoType();
+            if ($arginfoType->hasClassType()) {
                 $code .= sprintf(
                     "ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(%s, %d, %d, %s, %s)\n",
                     $funcInfo->getArgInfoName(), $funcInfo->return->byRef,
                     $funcInfo->numRequiredArgs,
-                    $representableType->classType->toEscapedName(), $representableType->toTypeMask()
+                    $arginfoType->toClassTypeString(), $arginfoType->toTypeMask()
                 );
             } else {
                 $code .= sprintf(
                     "ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(%s, %d, %d, %s)\n",
                     $funcInfo->getArgInfoName(), $funcInfo->return->byRef,
                     $funcInfo->numRequiredArgs,
-                    $representableType->toTypeMask()
+                    $arginfoType->toTypeMask()
                 );
             }
-        } else {
-            throw new Exception('Unimplemented');
         }
     } else {
         $code .= sprintf(
@@ -1409,25 +1422,23 @@ function funcInfoToCode(FuncInfo $funcInfo): string {
                         $argInfo->hasProperDefaultValue() ? ", " . $argInfo->getDefaultValueAsArginfoString() : ""
                     );
                 }
-            } else if (null !== $representableType = $argType->tryToRepresentableType()) {
-                if ($representableType->classType !== null) {
+            } else {
+                $arginfoType = $argType->toArginfoType();
+                if ($arginfoType->hasClassType()) {
                     $code .= sprintf(
                         "\tZEND_%s_OBJ_TYPE_MASK(%s, %s, %s, %s, %s)\n",
                         $argKind, $argInfo->getSendByString(), $argInfo->name,
-                        $representableType->classType->toEscapedName(),
-                        $representableType->toTypeMask(),
+                        $arginfoType->toClassTypeString(), $arginfoType->toTypeMask(),
                         $argInfo->getDefaultValueAsArginfoString()
                     );
                 } else {
                     $code .= sprintf(
                         "\tZEND_%s_TYPE_MASK(%s, %s, %s, %s)\n",
                         $argKind, $argInfo->getSendByString(), $argInfo->name,
-                        $representableType->toTypeMask(),
+                        $arginfoType->toTypeMask(),
                         $argInfo->getDefaultValueAsArginfoString()
                     );
                 }
-            } else {
-                throw new Exception('Unimplemented');
             }
         } else {
             $code .= sprintf(
@@ -1859,6 +1870,7 @@ foreach ($fileInfos as $fileInfo) {
         /** @var FuncInfo $funcInfo */
         $funcMap[$funcInfo->name->__toString()] = $funcInfo;
 
+        // TODO: Don't use aliasMap for methodsynopsis?
         if ($funcInfo->aliasType === "alias") {
             $aliasMap[$funcInfo->alias->__toString()] = $funcInfo;
         }
@@ -1868,7 +1880,11 @@ foreach ($fileInfos as $fileInfo) {
 if ($verify) {
     $errors = [];
 
-    foreach ($aliasMap as $aliasFunc) {
+    foreach ($funcMap as $aliasFunc) {
+        if (!$aliasFunc->alias) {
+            continue;
+        }
+
         if (!isset($funcMap[$aliasFunc->alias->__toString()])) {
             $errors[] = "Aliased function {$aliasFunc->alias}() cannot be found";
             continue;
@@ -1921,11 +1937,12 @@ if ($verify) {
             $aliasArgs, $aliasedArgs
         );
 
-        if ((!$aliasedFunc->isMethod() || $aliasedFunc->isFinalMethod()) &&
-            (!$aliasFunc->isMethod() || $aliasFunc->isFinalMethod()) &&
-            $aliasFunc->return != $aliasedFunc->return
-        ) {
-            $errors[] = "{$aliasFunc->name}() and {$aliasedFunc->name}() must have the same return type";
+        if (!$aliasedFunc->name->isConstructor() && !$aliasFunc->name->isConstructor()) {
+            $aliasedReturnType = $aliasedFunc->return->type ?? $aliasedFunc->return->phpDocType;
+            $aliasReturnType = $aliasFunc->return->type ?? $aliasFunc->return->phpDocType;
+            if ($aliasReturnType != $aliasedReturnType) {
+                $errors[] = "{$aliasFunc->name}() and {$aliasedFunc->name}() must have the same return type";
+            }
         }
     }
 

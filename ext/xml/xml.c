@@ -437,7 +437,7 @@ static void xml_set_handler(zval *handler, zval *data)
 
 	/* IS_ARRAY might indicate that we're using array($obj, 'method') syntax */
 	if (Z_TYPE_P(data) != IS_ARRAY && Z_TYPE_P(data) != IS_OBJECT) {
-		convert_to_string_ex(data);
+		convert_to_string(data);
 		if (Z_STRLEN_P(data) == 0) {
 			ZVAL_UNDEF(handler);
 			return;
@@ -1249,7 +1249,7 @@ PHP_FUNCTION(xml_parse)
 	char *data;
 	size_t data_len;
 	int ret;
-	zend_bool isFinal = 0;
+	bool isFinal = 0;
 
 	if (zend_parse_parameters(ZEND_NUM_ARGS(), "Os|b", &pind, xml_parser_ce, &data, &data_len, &isFinal) == FAILURE) {
 		RETURN_THROWS();

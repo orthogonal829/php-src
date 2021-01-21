@@ -50,7 +50,7 @@ static inline bool rewrite_name_to_position(pdo_stmt_t *stmt, struct pdo_bound_p
 		 * we will raise an error, as we can't be sure that it is safe
 		 * to bind multiple parameters onto the same zval in the underlying
 		 * driver */
-		char *name;
+		zend_string *name;
 		int position = 0;
 
 		if (stmt->named_rewrite_template) {
@@ -60,7 +60,7 @@ static inline bool rewrite_name_to_position(pdo_stmt_t *stmt, struct pdo_bound_p
 		if (!param->name) {
 			/* do the reverse; map the parameter number to the name */
 			if ((name = zend_hash_index_find_ptr(stmt->bound_param_map, param->paramno)) != NULL) {
-				param->name = zend_string_init(name, strlen(name), 0);
+				param->name = zend_string_copy(name);
 				return 1;
 			}
 			/* TODO Error? */
@@ -69,7 +69,7 @@ static inline bool rewrite_name_to_position(pdo_stmt_t *stmt, struct pdo_bound_p
 		}
 
 		ZEND_HASH_FOREACH_PTR(stmt->bound_param_map, name) {
-			if (strncmp(name, ZSTR_VAL(param->name), ZSTR_LEN(param->name) + 1)) {
+			if (!zend_string_equals(name, param->name)) {
 				position++;
 				continue;
 			}
@@ -297,8 +297,7 @@ static bool really_register_bound_param(struct pdo_bound_param_data *param, pdo_
 		int i;
 
 		for (i = 0; i < stmt->column_count; i++) {
-			if (ZSTR_LEN(stmt->columns[i].name) == ZSTR_LEN(param->name) &&
-				strncmp(ZSTR_VAL(stmt->columns[i].name), ZSTR_VAL(param->name), ZSTR_LEN(param->name) + 1) == 0) {
+			if (zend_string_equals(stmt->columns[i].name, param->name)) {
 				param->paramno = i;
 				break;
 			}
@@ -2018,7 +2017,7 @@ PHP_METHOD(PDOStatement, getIterator)
 /* {{{ overloaded handlers for PDOStatement class */
 static zval *dbstmt_prop_write(zend_object *object, zend_string *name, zval *value, void **cache_slot)
 {
-	if (strcmp(ZSTR_VAL(name), "queryString") == 0) {
+	if (zend_string_equals_literal(name, "queryString")) {
 		zend_throw_error(NULL, "Property queryString is read only");
 		return value;
 	} else {
@@ -2028,7 +2027,7 @@ static zval *dbstmt_prop_write(zend_object *object, zend_string *name, zval *val
 
 static void dbstmt_prop_delete(zend_object *object, zend_string *name, void **cache_slot)
 {
-	if (strcmp(ZSTR_VAL(name), "queryString") == 0) {
+	if (zend_string_equals_literal(name, "queryString")) {
 		zend_throw_error(NULL, "Property queryString is read only");
 	} else {
 		zend_std_unset_property(object, name, cache_slot);
@@ -2276,14 +2275,12 @@ static zval *row_prop_read(zend_object *object, zend_string *name, int type, voi
 			/* TODO: replace this with a hash of available column names to column
 			 * numbers */
 			for (colno = 0; colno < stmt->column_count; colno++) {
-				if (ZSTR_LEN(stmt->columns[colno].name) == ZSTR_LEN(name) &&
-					strncmp(ZSTR_VAL(stmt->columns[colno].name), ZSTR_VAL(name), ZSTR_LEN(name)) == 0) {
+				if (zend_string_equals(stmt->columns[colno].name, name)) {
 					fetch_value(stmt, rv, colno, NULL);
 					return rv;
 				}
 			}
-			if (strcmp(ZSTR_VAL(name), "queryString") == 0) {
-				//zval_ptr_dtor(rv);
+			if (zend_string_equals_literal(name, "queryString")) {
 				return zend_std_read_property(&stmt->std, name, type, cache_slot, rv);
 			}
 		}
@@ -2318,14 +2315,12 @@ static zval *row_dim_read(zend_object *object, zval *member, int type, zval *rv)
 			/* TODO: replace this with a hash of available column names to column
 			 * numbers */
 			for (colno = 0; colno < stmt->column_count; colno++) {
-				if (ZSTR_LEN(stmt->columns[colno].name) == Z_STRLEN_P(member) &&
-					strncmp(ZSTR_VAL(stmt->columns[colno].name), Z_STRVAL_P(member), Z_STRLEN_P(member)) == 0) {
+				if (zend_string_equals(stmt->columns[colno].name, Z_STR_P(member))) {
 					fetch_value(stmt, rv, colno, NULL);
 					return rv;
 				}
 			}
-			if (strcmp(Z_STRVAL_P(member), "queryString") == 0) {
-				//zval_ptr_dtor(rv);
+			if (zend_string_equals_literal(Z_STR_P(member), "queryString")) {
 				return zend_std_read_property(&stmt->std, Z_STR_P(member), type, NULL, rv);
 			}
 		}
@@ -2360,16 +2355,15 @@ static int row_prop_exists(zend_object *object, zend_string *name, int check_emp
 		/* TODO: replace this with a hash of available column names to column
 		 * numbers */
 		for (colno = 0; colno < stmt->column_count; colno++) {
-			if (ZSTR_LEN(stmt->columns[colno].name) == ZSTR_LEN(name) &&
-				strncmp(ZSTR_VAL(stmt->columns[colno].name), ZSTR_VAL(name), ZSTR_LEN(name)) == 0) {
-					int res;
-					zval val;
+			if (zend_string_equals(stmt->columns[colno].name, name)) {
+				int res;
+				zval val;
 
-					fetch_value(stmt, &val, colno, NULL);
-					res = check_empty ? i_zend_is_true(&val) : Z_TYPE(val) != IS_NULL;
-					zval_ptr_dtor_nogc(&val);
+				fetch_value(stmt, &val, colno, NULL);
+				res = check_empty ? i_zend_is_true(&val) : Z_TYPE(val) != IS_NULL;
+				zval_ptr_dtor_nogc(&val);
 
-					return res;
+				return res;
 			}
 		}
 	}
@@ -2400,16 +2394,15 @@ static int row_dim_exists(zend_object *object, zval *member, int check_empty)
 		/* TODO: replace this with a hash of available column names to column
 		 * numbers */
 		for (colno = 0; colno < stmt->column_count; colno++) {
-			if (ZSTR_LEN(stmt->columns[colno].name) == Z_STRLEN_P(member) &&
-				strncmp(ZSTR_VAL(stmt->columns[colno].name), Z_STRVAL_P(member), Z_STRLEN_P(member)) == 0) {
-					int res;
-					zval val;
+			if (zend_string_equals(stmt->columns[colno].name, Z_STR_P(member))) {
+				int res;
+				zval val;
 
-					fetch_value(stmt, &val, colno, NULL);
-					res = check_empty ? i_zend_is_true(&val) : Z_TYPE(val) != IS_NULL;
-					zval_ptr_dtor_nogc(&val);
+				fetch_value(stmt, &val, colno, NULL);
+				res = check_empty ? i_zend_is_true(&val) : Z_TYPE(val) != IS_NULL;
+				zval_ptr_dtor_nogc(&val);
 
-					return res;
+				return res;
 			}
 		}
 	}
